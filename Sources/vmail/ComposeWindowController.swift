@@ -22,6 +22,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var attachments: [Attachment]
     private var isBusy = false
     private var isFinished = false          // 보냈거나 저장·버리기로 끝난 상태
+    private let signaturePopup = NSPopUpButton()
+    private var signatures: [Signature] = []
+    private var currentSignature: Signature?
     private var isCompleting = false
     private var undoTimer: Timer?
     private var lastLengths: [ObjectIdentifier: Int] = [:]
@@ -75,7 +78,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             [label("참조"), ccField],
             [label("숨은 참조"), bccField],
             [label("제목"), subjectField],
+            [label("서명"), signaturePopup],
         ])
+        configureSignaturePopup()
         grid.rowSpacing = 6
         grid.columnSpacing = 8
         grid.column(at: 0).xPlacement = .trailing
@@ -149,6 +154,35 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         for (index, field) in fields.enumerated() {
             field.nextKeyView = index + 1 < fields.count ? fields[index + 1] : textView
         }
+    }
+
+    // MARK: - 서명
+
+    private func configureSignaturePopup() {
+        signatures = Preferences.signatures
+        currentSignature = draft.signature
+        signaturePopup.controlSize = .small
+        signaturePopup.addItems(withTitles: ["없음"] + signatures.map(\.name))
+        let index = signatures.firstIndex { $0.id == draft.signature?.id }
+        signaturePopup.selectItem(at: index.map { $0 + 1 } ?? 0)
+        signaturePopup.target = self
+        signaturePopup.action = #selector(signatureChanged)
+    }
+
+    /// 본문에 들어 있는 서명을 고른 서명으로 바꾼다. 못 찾으면(직접 고쳤으면) 본문 끝에 덧붙인다.
+    @objc private func signatureChanged() {
+        let index = signaturePopup.indexOfSelectedItem
+        let next = index > 0 && index <= signatures.count ? signatures[index - 1] : nil
+        let oldBlock = ComposeDraft.block(currentSignature)
+        let newBlock = ComposeDraft.block(next)
+        let text = textView.string as NSString
+        let range = oldBlock.isEmpty ? NSRange(location: NSNotFound, length: 0) : text.range(of: oldBlock)
+        let target = range.location != NSNotFound ? range : NSRange(location: text.length, length: 0)
+        if textView.shouldChangeText(in: target, replacementString: newBlock) {
+            textView.replaceCharacters(in: target, with: newBlock)
+            textView.didChangeText()
+        }
+        currentSignature = next
     }
 
     // MARK: - 주소 자동 완성

@@ -14,9 +14,13 @@ struct ComposeDraft {
     /// 임시보관함의 메일을 이어 쓰는 경우 원본 (보내거나 다시 저장하면 지운다)
     var sourceDraft: (mailbox: Mailbox, uid: UInt32)?
 
-    init(from: Address) {
+    /// 본문에 넣은 서명 (작성 창에서 다른 서명으로 바꿀 때 찾는다)
+    var signature: Signature?
+
+    init(from: Address, use: SignatureUse = .newMail) {
         self.from = from
-        body = Self.signatureBlock
+        signature = Preferences.signature(for: use)
+        body = Self.block(signature)
         // 작성 설정: 자동으로 나를 참조/숨은 참조에 넣기
         switch Preferences.copySelf {
         case .cc: cc = from.email
@@ -26,14 +30,14 @@ struct ComposeDraft {
     }
 
     /// 본문 끝(인용문 앞)에 붙는 서명
-    private static var signatureBlock: String {
-        let signature = Preferences.signature.trimmingCharacters(in: .whitespacesAndNewlines)
-        return signature.isEmpty ? "" : "\n\n\(signature)"
+    static func block(_ signature: Signature?) -> String {
+        let text = signature?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? "" : "\n\n\(text)"
     }
 
     /// 답장 초안: 받는 사람·제목·인용문을 채운다.
     static func reply(to envelope: Envelope, message: ParsedMessage, account: Account, all: Bool) -> ComposeDraft {
-        var draft = ComposeDraft(from: account.address)
+        var draft = ComposeDraft(from: account.address, use: .reply)
         let me = account.email.lowercased()
         let primary = envelope.replyTo.isEmpty ? envelope.from : envelope.replyTo
         draft.to = primary.map(\.fullDisplay).joined(separator: ", ")
@@ -57,7 +61,7 @@ struct ComposeDraft {
 
     /// 전달 초안: 원문 헤더·본문·첨부를 그대로 싣는다.
     static func forward(_ envelope: Envelope, message: ParsedMessage, account: Account) -> ComposeDraft {
-        var draft = ComposeDraft(from: account.address)
+        var draft = ComposeDraft(from: account.address, use: .reply)
         draft.subject = prefixed(envelope.subject, with: "Fwd:")
         let header = [
             "---------- 전달된 메시지 ----------",
@@ -78,6 +82,7 @@ struct ComposeDraft {
         draft.cc = message.cc
         draft.subject = envelope.subject
         draft.body = message.plainText.replacingOccurrences(of: "\r\n", with: "\n")
+        draft.signature = nil   // 저장된 본문에 이미 들어 있다
         draft.attachments = message.attachments
         draft.sourceDraft = (mailbox, envelope.uid)
         return draft

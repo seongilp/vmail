@@ -44,6 +44,8 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
         config.websiteDataStore = .nonPersistent()
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
+        // 웹뷰 자체 배경을 끄면 평문 메일이 창 배경과 자연스럽게 이어진다 (HTML 메일은 CSS로 흰 바탕을 준다).
+        webView.setValue(false, forKey: "drawsBackground")
         webView.translatesAutoresizingMaskIntoConstraints = false
 
         subjectLabel.font = .systemFont(ofSize: 18, weight: .semibold)

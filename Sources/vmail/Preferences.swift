@@ -28,6 +28,7 @@ enum Preferences {
         "markRead": MarkRead.immediately.rawValue,
         "checkSpelling": true, "copySelf": CopySelf.none.rawValue, "defaultAccountEmail": "",
         "undoSendDelay": 0, "quoteOriginal": true, "increaseQuoteLevel": true,
+        SignatureUse.newMail.rawValue: "", SignatureUse.reply.rawValue: "", SignatureUse.autoReply.rawValue: "",
     ]
 
     private static func get<T>(_ key: String) -> T {
@@ -79,6 +80,39 @@ enum Preferences {
     static var notifyNewMail: Bool {
         get { get("notifyNewMail") }
         set { set("notifyNewMail", newValue) }
+    }
+
+    // MARK: - 서명
+
+    private static let signaturesKey = "signatures"
+
+    /// 서명 목록. 예전의 단일 서명이 있으면 처음 한 번 ‘기본’ 서명으로 옮긴다.
+    static var signatures: [Signature] {
+        get {
+            if let stored = decode([Signature].self, signaturesKey) { return stored }
+            let legacy = signature.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !legacy.isEmpty else { return [] }
+            let migrated = Signature(id: UUID(), name: "기본", text: legacy)
+            encode([migrated], signaturesKey)
+            UserDefaults.standard.set(migrated.id.uuidString, forKey: SignatureUse.newMail.rawValue)
+            UserDefaults.standard.set(migrated.id.uuidString, forKey: SignatureUse.reply.rawValue)
+            return [migrated]
+        }
+        set {
+            encode(newValue, signaturesKey)
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
+    /// 용도에 지정된 서명 (지정하지 않았거나 지워졌으면 nil)
+    static func signature(for use: SignatureUse) -> Signature? {
+        let all = signatures   // 먼저 읽어 이전 서명을 옮긴다
+        let id: String = get(use.rawValue)
+        return all.first { $0.id.uuidString == id }
+    }
+
+    static func setSignature(_ signature: Signature?, for use: SignatureUse) {
+        set(use.rawValue, signature?.id.uuidString ?? "")
     }
 
     // MARK: - 글꼴 및 색상
@@ -235,6 +269,28 @@ enum Preferences {
             UserDefaults.standard.set(try JSONEncoder().encode(value), forKey: key)
         } catch {
             NSLog("vmail: 설정 저장 실패(\(key)) — \(error.localizedDescription)")
+        }
+    }
+}
+
+/// 이름 붙인 서명 하나
+struct Signature: Codable, Equatable {
+    var id: UUID
+    var name: String
+    var text: String
+}
+
+/// 서명을 쓰는 곳 (rawValue는 저장 키)
+enum SignatureUse: String, CaseIterable {
+    case newMail = "signatureForNewMail"
+    case reply = "signatureForReply"
+    case autoReply = "signatureForAutoReply"
+
+    var title: String {
+        switch self {
+        case .newMail: return "새 메일"
+        case .reply: return "답장·전달"
+        case .autoReply: return "부재중 응답"
         }
     }
 }

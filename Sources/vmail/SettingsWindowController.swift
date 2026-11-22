@@ -6,9 +6,9 @@ final class SettingsWindowController: NSWindowController {
     static let contentWidth: CGFloat = 560
     static let margin: CGFloat = 16
     /// 탭을 바꿔도 창 높이가 흔들리지 않게 모든 탭이 같은 높이를 쓴다.
-    static let contentHeight: CGFloat = 264
+    static let contentHeight: CGFloat = 232
 
-    private let tabs = NSTabViewController()
+    private let tabs = SettingsTabViewController()
 
     init(manager: AccountManager) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth, height: 300),
@@ -20,6 +20,7 @@ final class SettingsWindowController: NSWindowController {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(Self.tab(GeneralSettingsViewController(), "일반", "gearshape"))
         tabs.addTabViewItem(Self.tab(AccountsSettingsViewController(manager: manager), "계정", "at"))
+        tabs.addTabViewItem(Self.tab(SignaturesSettingsViewController(), "서명", "signature"))
         tabs.addTabViewItem(Self.tab(FontsSettingsViewController(), "글꼴 및 색상", "textformat.size"))
         tabs.addTabViewItem(Self.tab(ViewingSettingsViewController(), "보기", "eyeglasses"))
         tabs.addTabViewItem(Self.tab(ComposingSettingsViewController(manager: manager), "작성", "square.and.pencil"))
@@ -43,107 +44,59 @@ final class SettingsWindowController: NSWindowController {
     func show(accounts: Bool) {
         tabs.selectedTabViewItemIndex = accounts ? 1 : 0
         showWindow(nil)
+        tabs.fitWindowToSelectedTab(animated: false)
         window?.makeKeyAndOrderFront(nil)
     }
 }
 
-/// 일반: 알림, 원격 이미지, 서명, 설정 내보내기·가져오기
-final class GeneralSettingsViewController: NSViewController, NSTextViewDelegate {
+/// 탭을 바꿀 때마다 창 높이를 그 탭의 내용에 맞춘다 (위쪽 가장자리는 고정).
+final class SettingsTabViewController: NSTabViewController {
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        fitWindowToSelectedTab(animated: true)
+    }
+
+    func fitWindowToSelectedTab(animated: Bool) {
+        guard let window = view.window, selectedTabViewItemIndex >= 0,
+              let content = tabViewItems[selectedTabViewItemIndex].viewController?.view else { return }
+        content.layoutSubtreeIfNeeded()
+        let target = window.frameRect(forContentRect: NSRect(origin: .zero, size: content.fittingSize))
+        var frame = window.frame
+        frame.origin.y += frame.height - target.height
+        frame.size = target.size
+        window.setFrame(frame, display: true, animate: animated)
+    }
+}
+
+/// 일반: 알림, 원격 이미지, 설정 내보내기·가져오기
+final class GeneralSettingsViewController: NSViewController {
+    private let form = SettingsForm()
+    private var notifyBox: NSButton?
+    private var remoteBox: NSButton?
+
+    override func loadView() {
+        notifyBox = form.checkbox("새 메일이 오면 알림 표시", label: "알림:", isOn: Preferences.notifyNewMail) {
+            Preferences.notifyNewMail = $0
+            if $0 { NewMailNotifier.requestAuthorization() }
+        }
+        remoteBox = form.checkbox("원격 이미지 항상 불러오기", label: "개인정보:", isOn: Preferences.alwaysLoadRemoteContent) {
+            Preferences.alwaysLoadRemoteContent = $0
+        }
+        form.note("켜면 보낸 사람이 메일을 열어 봤는지 알 수 있습니다.")
+        form.gap()
+        let exportButton = NSButton(title: "설정 내보내기…", target: nil, action: #selector(AppDelegate.exportSettings(_:)))
+        let importButton = NSButton(title: "설정 가져오기…", target: nil, action: #selector(AppDelegate.importSettings(_:)))
+        for button in [exportButton, importButton] { button.bezelStyle = .rounded }
+        form.row("설정 파일:", [exportButton, importButton])
+        form.note("계정 정보·서명·규칙·보기 설정을 옮깁니다. 비밀번호는 포함되지 않습니다.", indented: false)
+        view = form.makeView()
+    }
+
     /// 가져오기로 값이 바뀌었을 수 있으니 탭을 열 때마다 다시 읽는다.
     override func viewWillAppear() {
         super.viewWillAppear()
-        notifyBox.state = Preferences.notifyNewMail ? .on : .off
-        remoteBox.state = Preferences.alwaysLoadRemoteContent ? .on : .off
-        if signatureView.string != Preferences.signature { signatureView.string = Preferences.signature }
-    }
-
-    private let notifyBox = NSButton(checkboxWithTitle: "새 메일이 오면 알림 표시", target: nil, action: nil)
-    private let remoteBox = NSButton(checkboxWithTitle: "원격 이미지 항상 불러오기", target: nil, action: nil)
-    private let signatureView = NSTextView()
-
-    override func loadView() {
-        notifyBox.state = Preferences.notifyNewMail ? .on : .off
-        remoteBox.state = Preferences.alwaysLoadRemoteContent ? .on : .off
-        for box in [notifyBox, remoteBox] {
-            box.target = self
-            box.action = #selector(toggled)
-        }
-        let remoteNote = NSTextField(labelWithString: "켜면 보낸 사람이 메일을 열어 봤는지 알 수 있습니다.")
-        remoteNote.font = .systemFont(ofSize: 11)
-        remoteNote.textColor = .secondaryLabelColor
-
-        signatureView.string = Preferences.signature
-        signatureView.font = .systemFont(ofSize: 13)
-        signatureView.isRichText = false
-        signatureView.delegate = self
-        signatureView.textContainerInset = NSSize(width: 2, height: 4)
-        signatureView.autoresizingMask = [.width]
-        signatureView.setAccessibilityLabel("서명")
-        let scroll = NSScrollView()
-        scroll.documentView = signatureView
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-
-        func caption(_ text: String) -> NSTextField {
-            let label = NSTextField(labelWithString: text)
-            label.alignment = .right
-            return label
-        }
-        let options = NSStackView(views: [notifyBox, remoteBox, remoteNote])
-        options.orientation = .vertical
-        options.alignment = .leading
-        options.spacing = 6
-        options.setCustomSpacing(2, after: remoteBox)
-        remoteNote.leadingAnchor.constraint(equalTo: options.leadingAnchor, constant: 20).isActive = true
-
-        // 레이블 열 + 내용 열. 남는 높이는 서명 칸이 모두 가져간다.
-        let mailLabel = caption("메일:")
-        let signatureLabel = caption("서명:")
-        let margin = SettingsWindowController.margin
-        let labelWidth: CGFloat = 40
-        let container = NSView()
-        let exportButton = NSButton(title: "설정 내보내기…", target: nil, action: #selector(AppDelegate.exportSettings(_:)))
-        let importButton = NSButton(title: "설정 가져오기…", target: nil, action: #selector(AppDelegate.importSettings(_:)))
-        for button in [exportButton, importButton] {
-            button.bezelStyle = .rounded
-            button.controlSize = .small
-        }
-        let backupButtons = NSStackView(views: [exportButton, importButton])
-        backupButtons.spacing = 8
-        for sub in [mailLabel, options, signatureLabel, scroll, backupButtons] as [NSView] {
-            sub.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(sub)
-        }
-        NSLayoutConstraint.activate([
-            container.widthAnchor.constraint(equalToConstant: SettingsWindowController.contentWidth),
-            container.heightAnchor.constraint(equalToConstant: SettingsWindowController.contentHeight),
-            mailLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: margin),
-            mailLabel.widthAnchor.constraint(equalToConstant: labelWidth),
-            mailLabel.firstBaselineAnchor.constraint(equalTo: notifyBox.firstBaselineAnchor),
-            options.topAnchor.constraint(equalTo: container.topAnchor, constant: margin),
-            options.leadingAnchor.constraint(equalTo: mailLabel.trailingAnchor, constant: 8),
-            options.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -margin),
-            signatureLabel.leadingAnchor.constraint(equalTo: mailLabel.leadingAnchor),
-            signatureLabel.widthAnchor.constraint(equalToConstant: labelWidth),
-            signatureLabel.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 3),
-            scroll.topAnchor.constraint(equalTo: options.bottomAnchor, constant: 14),
-            scroll.leadingAnchor.constraint(equalTo: options.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -margin),
-            scroll.bottomAnchor.constraint(equalTo: backupButtons.topAnchor, constant: -10),
-            backupButtons.leadingAnchor.constraint(equalTo: options.leadingAnchor),
-            backupButtons.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -margin),
-        ])
-        view = container
-    }
-
-    @objc private func toggled() {
-        Preferences.notifyNewMail = notifyBox.state == .on
-        Preferences.alwaysLoadRemoteContent = remoteBox.state == .on
-        if Preferences.notifyNewMail { NewMailNotifier.requestAuthorization() }
-    }
-
-    func textDidChange(_ notification: Notification) {
-        Preferences.signature = signatureView.string
+        notifyBox?.state = Preferences.notifyNewMail ? .on : .off
+        remoteBox?.state = Preferences.alwaysLoadRemoteContent ? .on : .off
     }
 }
 

@@ -38,6 +38,7 @@ enum MessageHTML {
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>:root { color-scheme: \(colorScheme); }
+        \(colorScheme == "light" ? "html { background: #fff; color: #000; }" : "")
         body { font: \(Int(font.pointSize))px/1.55 \(family), sans-serif; margin: 16px 20px; word-wrap: break-word; }
         img { max-width: 100%; height: auto; }
         .plain { white-space: pre-wrap; }

@@ -48,9 +48,11 @@ enum MailAutomation {
     // MARK: - 부재중 자동 응답
 
     private static func autoReply(to envelopes: [Envelope], store: MailStore, inbox: Mailbox) {
-        let settings = Preferences.autoReply
+        var settings = Preferences.autoReply
         let now = Date()
         guard settings.isActive(at: now) else { return }
+        // 부재중 응답용으로 지정한 서명을 내용 끝에 붙인다.
+        settings.body += ComposeDraft.block(Preferences.signature(for: .autoReply))
         // 한 번에 같은 사람의 메일이 여러 통 와도 한 통에만 응답한다.
         var handled = Set<String>()
         for envelope in envelopes {
