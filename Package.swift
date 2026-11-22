@@ -17,6 +17,12 @@ let package = Package(
             dependencies: ["MailCore"],
             path: "Sources/vmail"
         ),
+        // 명령줄 도구 — 앱 번들의 Contents/MacOS/vmail-cli 로 들어간다
+        .executableTarget(
+            name: "vmailcli",
+            dependencies: ["MailCore"],
+            path: "Sources/vmailcli"
+        ),
         .testTarget(
             name: "MailCoreTests",
             dependencies: ["MailCore"],

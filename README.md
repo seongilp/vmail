@@ -48,6 +48,25 @@ brew install --cask seongilp/tap/vmail
 
 또는 [Releases](https://github.com/seongilp/vmail/releases/latest)에서 DMG를 내려받아 응용 프로그램 폴더로 옮깁니다. Developer ID 서명 및 Apple 공증을 거쳤습니다.
 
+## 명령줄 도구 (vmail CLI)
+
+Homebrew로 설치하면 `vmail` 명령이 함께 설치됩니다. 앱에 등록한 계정을 그대로 씁니다.
+
+```bash
+vmail list --unread                  # 받은편지함의 읽지 않은 메일
+vmail search "회의" -n 10             # 서버 전체 검색
+vmail read 1234                      # 본문 읽기 (--json, --raw, --attachments 폴더)
+vmail mark 1234 --read               # 읽음 / --unread / --flag / --unflag
+vmail move 1234 --dest all           # 사서함 이동 (이름 또는 inbox·sent·trash·junk·all)
+vmail delete 1234                    # 휴지통으로
+echo "본문" | vmail send --to a@example.com --subject "제목"   # --dry-run 으로 미리 확인
+vmail doctor                         # 계정별 키체인·로그인 점검
+```
+
+- 모든 명령에 `--json`을 붙이면 기계가 읽기 좋은 출력이 나옵니다. 종료 코드는 0(성공), 1(실행 오류), 64(사용법 오류)입니다.
+- 처음 실행하면 macOS가 키체인 접근을 묻습니다. 계정마다 한 번 ‘항상 허용’을 누르면 됩니다 (`vmail doctor`로 한 번에 처리).
+- **AI 에이전트에서 쓰기**: `vmail install-skill`이 Claude Code(`~/.claude/skills/vmail`)와 Codex(`~/.codex/skills/vmail`)에 스킬을 설치합니다. 안내문만 보려면 `vmail agent-guide`.
+
 ## 후원
 
 vmail은 무료 오픈 소스입니다. 도움이 되었다면 [후원](https://ko-fi.com/seongilp)으로 응원해 주세요.
