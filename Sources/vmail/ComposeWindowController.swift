@@ -23,6 +23,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var isBusy = false
     private var isFinished = false          // 보냈거나 저장·버리기로 끝난 상태
     private var isCompleting = false
+    private var undoTimer: Timer?
     private var lastLengths: [ObjectIdentifier: Int] = [:]
 
     init(store: MailStore, draft: ComposeDraft) {
@@ -85,6 +86,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         textView.font = .systemFont(ofSize: 14)
         textView.isRichText = false
         textView.allowsUndo = true
+        textView.isContinuousSpellCheckingEnabled = Preferences.checkSpelling
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainerInset = NSSize(width: 8, height: 8)
@@ -258,8 +260,35 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                                body: textView.string, attachments: attachments, inReplyTo: draft.inReplyTo)
     }
 
+    /// 보내기. 발송 취소 대기 시간이 설정돼 있으면 그동안 버튼이 ‘실행 취소’가 된다.
     @objc func sendMessage(_ sender: Any?) {
+        if undoTimer != nil { return cancelPendingSend() }
         guard !isBusy, let message = buildMessage(requireRecipient: true) else { return }
+        let delay = Preferences.undoSendDelay
+        guard delay > 0 else { return deliver(message) }
+        var remaining = delay
+        setBusy(true, title: "실행 취소 (\(remaining))")
+        sendButton.isEnabled = true
+        undoTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            remaining -= 1
+            if remaining > 0 {
+                self.sendButton.title = "실행 취소 (\(remaining))"
+            } else {
+                self.undoTimer?.invalidate()
+                self.undoTimer = nil
+                self.deliver(message)
+            }
+        }
+    }
+
+    private func cancelPendingSend() {
+        undoTimer?.invalidate()
+        undoTimer = nil
+        setBusy(false, title: "보내기")
+    }
+
+    private func deliver(_ message: OutgoingMessage) {
         setBusy(true, title: "보내는 중…")
         store.send(message) { [weak self] error in
             guard let self else { return }

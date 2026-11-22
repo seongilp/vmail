@@ -117,9 +117,16 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
         center.addObserver(self, selector: #selector(mailboxChanged), name: AccountManager.currentDidChange, object: manager)
         center.addObserver(self, selector: #selector(storeSelectionChanged(_:)), name: MailStore.selectionDidChange, object: nil)
         center.addObserver(self, selector: #selector(messagesChanged(_:)), name: MailStore.messagesDidChange, object: nil)
+        center.addObserver(self, selector: #selector(preferencesChanged), name: Preferences.didChange, object: nil)
         center.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
                            object: scrollView.contentView)
         reload(keepSelection: false)
+    }
+
+    /// 글꼴·굵게 표시 등 보기 설정이 바뀌면 목록을 다시 그린다.
+    @objc private func preferencesChanged() {
+        tableView.rowHeight = MessageCellView.rowHeight
+        reload(keepSelection: true)
     }
 
     func focus() {
@@ -207,7 +214,7 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
         tableView.reloadData()
         var restored = IndexSet(rows.indices.filter { previous.contains(rows[$0].uid) })
         // 선택했던 메일이 사라졌으면(삭제·이동) 그 자리에 올라온 다음 메일을 선택해 흐름이 끊기지 않게 한다.
-        if restored.isEmpty, keepSelection, let row = previousFirstRow, !rows.isEmpty {
+        if restored.isEmpty, keepSelection, Preferences.selectNextAfterRemoval, let row = previousFirstRow, !rows.isEmpty {
             restored = [min(row, rows.count - 1)]
         }
         tableView.selectRowIndexes(restored, byExtendingSelection: false)

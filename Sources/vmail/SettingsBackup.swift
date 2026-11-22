@@ -13,6 +13,8 @@ struct SettingsBackup: Codable {
     var notifyNewMail: Bool
     var autoReply: AutoReplySettings
     var rules: [MailRule]
+    /// 글꼴·보기·작성 등 나머지 설정 (이전 버전 파일에는 없다)
+    var options: [String: String]?
 }
 
 /// 설정을 JSON 파일로 내보내고 가져온다.
@@ -35,7 +37,7 @@ final class SettingsTransfer {
             let backup = SettingsBackup(accounts: self.manager.stores.map(\.account), signature: Preferences.signature,
                                         alwaysLoadRemoteContent: Preferences.alwaysLoadRemoteContent,
                                         notifyNewMail: Preferences.notifyNewMail, autoReply: Preferences.autoReply,
-                                        rules: Preferences.rules)
+                                        rules: Preferences.rules, options: Preferences.snapshot())
             do {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -69,6 +71,7 @@ final class SettingsTransfer {
     }
 
     private func apply(_ backup: SettingsBackup, window: NSWindow) {
+        if let options = backup.options { Preferences.restore(options) }
         Preferences.signature = backup.signature
         Preferences.alwaysLoadRemoteContent = backup.alwaysLoadRemoteContent
         Preferences.notifyNewMail = backup.notifyNewMail

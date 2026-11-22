@@ -17,6 +17,12 @@ struct ComposeDraft {
     init(from: Address) {
         self.from = from
         body = Self.signatureBlock
+        // 작성 설정: 자동으로 나를 참조/숨은 참조에 넣기
+        switch Preferences.copySelf {
+        case .cc: cc = from.email
+        case .bcc: bcc = from.email
+        case .none: break
+        }
     }
 
     /// 본문 끝(인용문 앞)에 붙는 서명
@@ -36,12 +42,16 @@ struct ComposeDraft {
             let others = (envelope.to + envelope.cc).filter {
                 $0.email.lowercased() != me && !primaryEmails.contains($0.email.lowercased())
             }
-            draft.cc = others.map(\.fullDisplay).joined(separator: ", ")
+            draft.cc = ([draft.cc] + others.map(\.fullDisplay)).filter { !$0.isEmpty }.joined(separator: ", ")
         }
         draft.subject = prefixed(envelope.subject, with: "Re:")
         draft.inReplyTo = envelope.messageID
         let sender = envelope.from.first?.displayName ?? "보낸 사람"
-        draft.body += "\n\n\(ListDateFormatter.detailed(envelope.date))에 \(sender) 님이 작성:\n\(quoted(message.plainText))\n"
+        if Preferences.quoteOriginal {
+            let original = message.plainText.replacingOccurrences(of: "\r\n", with: "\n")
+            let text = Preferences.increaseQuoteLevel ? quoted(original) : original
+            draft.body += "\n\n\(ListDateFormatter.detailed(envelope.date))에 \(sender) 님이 작성:\n\(text)\n"
+        }
         return draft
     }
 

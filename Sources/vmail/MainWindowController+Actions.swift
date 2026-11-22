@@ -10,7 +10,9 @@ extension MainWindowController {
     // MARK: - 작성
 
     @objc func composeMessage(_ sender: Any?) {
-        guard let store else { return showAccountSheet() }
+        // 설정에서 정한 계정이 있으면 그 계정으로, 없으면 지금 보고 있는 계정으로 보낸다.
+        let preferred = manager.stores.first { $0.account.email.lowercased() == Preferences.defaultAccountEmail.lowercased() }
+        guard let store = preferred ?? store else { return showAccountSheet() }
         openCompose(ComposeDraft(from: store.account.address), store: store)
     }
 
@@ -73,6 +75,11 @@ extension MainWindowController {
 
     @objc func deleteMessage(_ sender: Any?) {
         guard let selection else { return }
+        // 설정에서 ‘삭제한 메일을 보관함으로’를 골랐으면 보관한다 (이미 보관함·휴지통이면 삭제).
+        if Preferences.deleteDestination == .archive, let archive = selection.store.archiveMailbox,
+           ![.all, .trash, .junk, .drafts].contains(selection.mailbox.role) {
+            return move(selection, to: archive)
+        }
         selection.store.delete(selection.envelopes, in: selection.mailbox) { [weak self] error in
             self?.presentFailure("메일을 삭제하지 못했습니다", error)
         }

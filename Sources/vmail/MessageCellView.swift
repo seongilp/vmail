@@ -37,7 +37,8 @@ enum ListDateFormatter {
 
 /// 메시지 한 줄: 읽지 않음 점 · 보낸 사람 · 날짜 / 제목
 final class MessageCellView: NSTableCellView {
-    static let rowHeight: CGFloat = 52
+    /// 목록 글꼴 크기에 맞춘 줄 높이 (두 줄 + 여백)
+    static var rowHeight: CGFloat { ceil(Preferences.listFont.pointSize * 2.3) + 22 }
 
     private let unreadDot = NSView()
     private let senderLabel = NSTextField(labelWithString: "")
@@ -103,7 +104,15 @@ final class MessageCellView: NSTableCellView {
         senderLabel.stringValue = names.isEmpty ? "(보낸 사람 없음)" : names
         subjectLabel.stringValue = envelope.subject.isEmpty ? "(제목 없음)" : envelope.subject
         dateLabel.stringValue = ListDateFormatter.short(envelope.date)
-        senderLabel.font = .systemFont(ofSize: 13, weight: isUnread ? .semibold : .regular)
+        let base = Preferences.listFont
+        let emphasized = isUnread && Preferences.boldUnread
+        if base.fontName.hasPrefix(".") {
+            senderLabel.font = .systemFont(ofSize: base.pointSize, weight: emphasized ? .semibold : .regular)
+        } else {
+            senderLabel.font = emphasized ? NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask) : base
+        }
+        subjectLabel.font = NSFontManager.shared.convert(base, toSize: base.pointSize - 1)
+        dateLabel.font = NSFontManager.shared.convert(base, toSize: base.pointSize - 2)
         unreadDot.isHidden = !isUnread
         flagView.isHidden = !envelope.isFlagged
         setAccessibilityLabel("\(isUnread ? "읽지 않음, " : "")\(senderLabel.stringValue), \(subjectLabel.stringValue)")

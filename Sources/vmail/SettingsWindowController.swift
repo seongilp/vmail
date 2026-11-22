@@ -6,7 +6,7 @@ final class SettingsWindowController: NSWindowController {
     static let contentWidth: CGFloat = 560
     static let margin: CGFloat = 16
     /// 탭을 바꿔도 창 높이가 흔들리지 않게 모든 탭이 같은 높이를 쓴다.
-    static let contentHeight: CGFloat = 248
+    static let contentHeight: CGFloat = 264
 
     private let tabs = NSTabViewController()
 
@@ -20,6 +20,9 @@ final class SettingsWindowController: NSWindowController {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(Self.tab(GeneralSettingsViewController(), "일반", "gearshape"))
         tabs.addTabViewItem(Self.tab(AccountsSettingsViewController(manager: manager), "계정", "at"))
+        tabs.addTabViewItem(Self.tab(FontsSettingsViewController(), "글꼴 및 색상", "textformat.size"))
+        tabs.addTabViewItem(Self.tab(ViewingSettingsViewController(), "보기", "eyeglasses"))
+        tabs.addTabViewItem(Self.tab(ComposingSettingsViewController(manager: manager), "작성", "square.and.pencil"))
         tabs.addTabViewItem(Self.tab(RulesSettingsViewController(manager: manager), "규칙", "line.3.horizontal.decrease.circle"))
         tabs.addTabViewItem(Self.tab(AutoReplySettingsViewController(), "부재중", "moon.zzz"))
         window.contentViewController = tabs

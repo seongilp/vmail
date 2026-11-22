@@ -117,6 +117,8 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
     override func viewDidLoad() {
         super.viewDidLoad()
         showPlaceholder("메일을 선택하세요")
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged),
+                                               name: Preferences.didChange, object: nil)
         // 원격 콘텐츠 차단 규칙이 준비되기 전에는 본문을 그리지 않는다.
         WKContentRuleListStore.default().compileContentRuleList(
             forIdentifier: Self.blockRulesID, encodedContentRuleList: Self.blockRulesJSON
@@ -159,9 +161,7 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
                 guard let store else { return }
                 self.current = (envelope, mailbox, message, store)
                 self.render(message, allowRemote: Preferences.alwaysLoadRemoteContent)
-                if !envelope.isSeen {
-                    store.setFlag("\\Seen", on: true, envelopes: [envelope], in: mailbox) { _ in }
-                }
+                self.markReadIfNeeded(envelope, in: mailbox, store: store, key: key)
             case .failure(let error):
                 self.statusLabel.stringValue = error.localizedDescription
                 self.statusLabel.isHidden = false
@@ -183,7 +183,9 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
         separator.isHidden = false
         subjectLabel.stringValue = envelope.subject.isEmpty ? "(제목 없음)" : envelope.subject
         fromLabel.stringValue = envelope.from.map(\.fullDisplay).joined(separator: ", ")
-        let recipients = (envelope.to + envelope.cc).map(\.displayName).joined(separator: ", ")
+        // 스마트 주소: 켜면 받는 사람을 이름만, 끄면 이름과 주소를 함께 보여준다.
+        let recipients = (envelope.to + envelope.cc)
+            .map { Preferences.smartAddresses ? $0.displayName : $0.fullDisplay }.joined(separator: ", ")
         toLabel.stringValue = recipients.isEmpty ? "" : "받는 사람: \(recipients)"
         toLabel.isHidden = recipients.isEmpty
         dateLabel.stringValue = ListDateFormatter.detailed(envelope.date)
@@ -194,6 +196,30 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
     private func setBodyVisible(_ visible: Bool) {
         webView.isHidden = !visible
         if !visible { webView.loadHTMLString("", baseURL: nil) }
+    }
+
+    /// 읽음 처리 설정(즉시 / 잠시 후 / 직접)에 따라 읽음으로 표시한다.
+    private func markReadIfNeeded(_ envelope: Envelope, in mailbox: Mailbox, store: MailStore, key: String) {
+        guard !envelope.isSeen else { return }
+        let mark = { store.setFlag("\\Seen", on: true, envelopes: [envelope], in: mailbox) { _ in } }
+        switch Preferences.markRead {
+        case .immediately:
+            mark()
+        case .delayed:
+            // 그사이 다른 메일로 넘어갔으면 표시하지 않는다.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Preferences.markReadDelay) { [weak self] in
+                if self?.requestedKey == key { mark() }
+            }
+        case .manual:
+            break
+        }
+    }
+
+    /// 글꼴·색·배경 설정이 바뀌면 떠 있는 메일을 다시 그린다.
+    @objc private func preferencesChanged() {
+        guard let current else { return }
+        showHeader(current.envelope)
+        render(current.message, allowRemote: Preferences.alwaysLoadRemoteContent)
     }
 
     // MARK: - 프린트 / 확대
