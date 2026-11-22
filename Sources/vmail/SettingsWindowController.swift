@@ -89,6 +89,12 @@ final class GeneralSettingsViewController: NSViewController {
         for button in [exportButton, importButton] { button.bezelStyle = .rounded }
         form.row("설정 파일:", [exportButton, importButton])
         form.note("계정 정보·서명·규칙·보기 설정을 옮깁니다. 비밀번호는 포함되지 않습니다.", indented: false)
+        form.gap()
+        let sponsorButton = NSButton(title: "♥ 후원하기", target: nil, action: #selector(AppDelegate.openSponsorPage(_:)))
+        let githubButton = NSButton(title: "GitHub", target: nil, action: #selector(AppDelegate.openRepository(_:)))
+        for button in [sponsorButton, githubButton] { button.bezelStyle = .rounded }
+        form.row("vmail:", [sponsorButton, githubButton])
+        form.note("vmail은 무료 오픈 소스입니다. 후원은 개발을 이어 가는 데 큰 힘이 됩니다.", indented: false)
         view = form.makeView()
     }
 

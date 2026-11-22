@@ -50,6 +50,7 @@
     font: 14px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
   }
   .note { text-align: center; color: var(--muted); font-size: 15px; margin-top: 18px; }
+  .note a { color: var(--accent); }
   footer { border-top: 1px solid var(--line); padding: 32px 0 48px; text-align: center; color: var(--muted); font-size: 14px; }
   footer a { color: inherit; }
 </style>
@@ -61,33 +62,36 @@
     <p class="lead">macOS를 위한 네이티브 메일 앱. 열면 바로 보이고, 필요한 것만 있습니다.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/seongilp/vmail">GitHub에서 보기</a>
-      <a class="btn ghost" href="#install">직접 빌드하기</a>
+      <a class="btn ghost" href="#install">설치하기</a>
     </div>
   </header>
 
   <div class="wrap shot">
-    <img src="screenshot.png" alt="vmail 메인 화면: 사서함, 메시지 목록, 본문의 3단 구성" width="2384" height="1544">
+    <img src="screenshot.png" alt="vmail 메인 화면: 계정별 사서함 트리, 메시지 목록, 본문의 3단 구성" width="2384" height="1544">
   </div>
 
   <section class="wrap">
     <h2>필요한 건 다 있고,<br>군더더기는 없습니다.</h2>
     <div class="grid">
       <div class="card"><h3>네이티브</h3><p>AppKit과 시스템 프레임워크만 사용합니다. 외부 의존성 0개.</p></div>
+      <div class="card"><h3>여러 계정</h3><p>Gmail, iCloud, 네이버를 한 창에서. 앱 암호는 복사만 하면 로그인됩니다.</p></div>
       <div class="card"><h3>즉시 표시</h3><p>목록을 디스크에 캐시해 실행하자마자 메일이 보입니다.</p></div>
       <div class="card"><h3>안전한 본문</h3><p>스크립트는 끄고 원격 이미지는 기본 차단합니다.</p></div>
+      <div class="card"><h3>자동 분류</h3><p>규칙으로 새 메일을 옮기고, 읽음 처리하고, 정리합니다.</p></div>
+      <div class="card"><h3>부재중 응답</h3><p>기간을 정해 두면 자리를 비운 동안 대신 답장합니다.</p></div>
+      <div class="card"><h3>서버 검색</h3><p>입력하면 바로 거르고, Enter로 사서함 전체를 찾습니다.</p></div>
       <div class="card"><h3>한국어 메일</h3><p>EUC-KR·CP949 레거시 인코딩도 깨지지 않습니다.</p></div>
     </div>
   </section>
 
   <section class="wrap" id="install" style="padding-top:0">
     <h2>한 줄이면 됩니다.</h2>
-    <pre><code>git clone https://github.com/seongilp/vmail && cd vmail
-./build.sh && open -a "$(pwd)/vmail.app"</code></pre>
-    <p class="note">macOS 13 이상 · Gmail, 네이버, 다음, 카카오, iCloud 등 IMAP 계정 지원</p>
+    <pre><code>brew install --cask seongilp/tap/vmail</code></pre>
+    <p class="note">또는 <a href="https://github.com/seongilp/vmail/releases/latest">최신 DMG 내려받기</a> · macOS 13 이상 · Apple 공증 완료</p>
   </section>
 
   <footer>
-    <div class="wrap">vmail · <a href="https://github.com/seongilp/vmail">github.com/seongilp/vmail</a></div>
+    <div class="wrap">vmail · <a href="https://github.com/seongilp/vmail">GitHub</a> · <a href="https://ko-fi.com/seongilp">후원하기</a></div>
   </footer>
 </body>
 </html>

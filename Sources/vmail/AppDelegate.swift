@@ -72,6 +72,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindowController?.showAccountSheet()
     }
 
+    @objc func showAbout(_ sender: Any?) {
+        AppLinks.showAboutPanel()
+    }
+
+    @objc func openSponsorPage(_ sender: Any?) {
+        AppLinks.open(AppLinks.sponsor)
+    }
+
+    @objc func openRepository(_ sender: Any?) {
+        AppLinks.open(AppLinks.repository)
+    }
+
     @objc func exportSettings(_ sender: Any?) {
         guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
         transfer.export(from: window)

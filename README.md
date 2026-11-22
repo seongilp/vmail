@@ -32,6 +32,18 @@ macOS용 빠르고 단순한 네이티브 메일 앱. AppKit + 시스템 프레�
 - ‘키체인에서 가져오기’는 다른 메일 앱이 로그인 키체인에 저장해 둔 IMAP 비밀번호를 불러옵니다. OAuth로 로그인한 계정(Apple Mail의 Gmail 등)은 비밀번호가 존재하지 않아 가져올 수 없습니다.
 - 비밀번호는 이 Mac의 키체인에만 저장됩니다.
 
+## 설치
+
+```bash
+brew install --cask seongilp/tap/vmail
+```
+
+또는 [Releases](https://github.com/seongilp/vmail/releases/latest)에서 DMG를 내려받아 응용 프로그램 폴더로 옮깁니다. Developer ID 서명 및 Apple 공증을 거쳤습니다.
+
+## 후원
+
+vmail은 무료 오픈 소스입니다. 도움이 되었다면 [후원](https://ko-fi.com/seongilp)으로 응원해 주세요.
+
 ## 빌드
 
 Xcode 프로젝트 없이 SwiftPM으로 빌드합니다. macOS 13 이상.

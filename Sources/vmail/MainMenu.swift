@@ -31,7 +31,9 @@ enum MainMenu {
 
     private static func appMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(item("vmail에 관하여", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        menu.addItem(item("vmail에 관하여", #selector(AppDelegate.showAbout(_:))))
+        menu.addItem(item("후원하기…", #selector(AppDelegate.openSponsorPage(_:))))
+        menu.addItem(item("GitHub 저장소", #selector(AppDelegate.openRepository(_:))))
         menu.addItem(.separator())
         menu.addItem(item("설정…", #selector(AppDelegate.showSettings(_:)), ","))
         menu.addItem(item("계정…", #selector(AppDelegate.showAccounts(_:))))
