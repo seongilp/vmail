@@ -30,6 +30,18 @@
   h1 span { color: var(--accent); }
   .lead { font-size: clamp(16px, 2vw, 19px); color: var(--muted); max-width: 60ch; margin: 0 auto; text-wrap: pretty; word-break: keep-all; }
   .lead.sub { margin-top: 10px; text-align: center; }
+  .copy {
+    margin: 26px auto 0; display: inline-flex; align-items: center; gap: 14px; max-width: 100%;
+    padding: 12px 14px 12px 18px; border: 0; border-radius: 12px; cursor: pointer;
+    background: var(--code-bg); color: var(--code-fg); font: 14px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .copy code { overflow-x: auto; white-space: nowrap; }
+  .copy-state {
+    flex: none; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: #fff;
+    font: 600 12px/1.4 -apple-system, sans-serif;
+  }
+  .copy:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .copy.done .copy-state { background: #1f9d55; }
   .cta { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
   .btn {
     display: inline-block; padding: 11px 22px; border-radius: 999px; font-weight: 600; font-size: 15px;
@@ -62,10 +74,11 @@
     <img src="icon.png" alt="vmail 아이콘" width="80" height="80">
     <h1>메일은 <span>가볍게.</span></h1>
     <p class="lead">macOS를 위한 네이티브 메일 앱. 빠르고, 필요한 것만 있고, 아무것도 수집하지 않습니다.</p>
-    <div class="cta">
-      <a class="btn" href="#install">설치하기</a>
-      <a class="btn ghost" href="https://github.com/seongilp/vmail">GitHub</a>
-    </div>
+    <button class="copy" id="install" type="button" data-command="brew install --cask seongilp/tap/vmail" aria-label="설치 명령 복사">
+      <code>brew install --cask seongilp/tap/vmail</code>
+      <span class="copy-state" aria-live="polite">복사</span>
+    </button>
+    <p class="note">또는 <a href="https://github.com/seongilp/vmail/releases/latest">최신 DMG 내려받기</a> · <a href="https://github.com/seongilp/vmail">GitHub</a> · macOS 13 이상 · Apple 공증 완료</p>
   </header>
 
   <div class="wrap shot">
@@ -98,14 +111,35 @@
     <p class="note">모든 코드는 <a href="https://github.com/seongilp/vmail">GitHub</a>에 공개되어 있어 직접 확인할 수 있습니다.</p>
   </section>
 
-  <section class="wrap" id="install">
-    <h2>한 줄이면 됩니다.</h2>
-    <pre><code>brew install --cask seongilp/tap/vmail</code></pre>
-    <p class="note">또는 <a href="https://github.com/seongilp/vmail/releases/latest">최신 DMG 내려받기</a> · macOS 13 이상 · Apple 공증 완료</p>
-  </section>
 
   <footer>
     <div class="wrap">vmail · <a href="https://github.com/seongilp/vmail">GitHub</a> · <a href="https://ko-fi.com/seongilp">후원하기</a></div>
   </footer>
+  <script>
+    // 설치 명령을 누르면 클립보드에 복사하고 잠깐 ‘복사됨’으로 바꾼다.
+    const copyButton = document.getElementById("install");
+    const copyState = copyButton.querySelector(".copy-state");
+    copyButton.addEventListener("click", async () => {
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(copyButton.dataset.command);
+        copied = true;
+      } catch (error) {
+        // 클립보드 API가 막힌 환경(오래된 브라우저, 로컬 파일)에서는 임시 입력창으로 복사한다.
+        const field = document.createElement("textarea");
+        field.value = copyButton.dataset.command;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        try { copied = document.execCommand("copy"); } catch (fallbackError) { copied = false; }
+        field.remove();
+      }
+      copyButton.classList.toggle("done", copied);
+      copyState.textContent = copied ? "복사됨" : "복사 실패 — 직접 선택하세요";
+      setTimeout(() => { copyButton.classList.remove("done"); copyState.textContent = "복사"; }, 1800);
+    });
+  </script>
 </body>
 </html>
