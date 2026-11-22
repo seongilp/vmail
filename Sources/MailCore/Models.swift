@@ -171,16 +171,19 @@ public struct OutgoingMessage: Sendable {
     public let from: Address
     public let to: [Address]
     public let cc: [Address]
+    /// 봉투에만 쓰이고 헤더에는 넣지 않는다.
+    public let bcc: [Address]
     public let subject: String
     public let body: String
     public let attachments: [Attachment]
     public let inReplyTo: String?
 
-    public init(from: Address, to: [Address], cc: [Address], subject: String, body: String,
+    public init(from: Address, to: [Address], cc: [Address], bcc: [Address] = [], subject: String, body: String,
                 attachments: [Attachment] = [], inReplyTo: String? = nil) {
         self.from = from
         self.to = to
         self.cc = cc
+        self.bcc = bcc
         self.subject = subject
         self.body = body
         self.attachments = attachments

@@ -49,6 +49,15 @@ final class CodingTests: XCTestCase {
         XCTAssertEqual(ModifiedUTF7.decode("[Gmail]/&yATMtLz0rQDVaA-"), "[Gmail]/전체보관함")
     }
 
+    func testModifiedUTF7EncodeRoundTrip() {
+        for name in ["INBOX", "A & B", "[Gmail]/전체보관함", "프로젝트/vmail 🚀", ""] {
+            let encoded = ModifiedUTF7.encode(name)
+            XCTAssertTrue(encoded.utf8.allSatisfy { $0 >= 0x20 && $0 <= 0x7E })
+            XCTAssertEqual(ModifiedUTF7.decode(encoded), name)
+        }
+        XCTAssertEqual(ModifiedUTF7.encode("[Gmail]/전체보관함"), "[Gmail]/&yATMtLz0rQDVaA-")
+    }
+
     func testCharsetFallsBackWhenDeclaredCharsetIsWrong() {
         XCTAssertEqual(Charset.decode(Data("한글".utf8), charset: "x-unknown"), "한글")
         XCTAssertEqual(Charset.decode(Data([0xC7, 0xD1, 0xB1, 0xDB]), charset: nil), "한글")

@@ -7,6 +7,11 @@ final class ProtocolTests: XCTestCase {
 
     private func imapServer() throws -> FakeServer {
         try FakeServer(greeting: "* OK fake ready\r\n") { line, state in
+            if let tag = state["searchTag"] {
+                state["searchTag"] = nil
+                state["searched"] = line
+                return Data("* SEARCH 10 11\r\n\(tag) OK done\r\n".utf8)
+            }
             // APPEND 리터럴 본문 수신 중
             if let tag = state["appendTag"] {
                 if line.isEmpty {
@@ -41,11 +46,19 @@ final class ProtocolTests: XCTestCase {
                 }
                 return ok(row(1, 10, "\\Seen") + row(2, 11, ""))
             }
-            if command.hasPrefix("UID FETCH 11") {
+            if command.hasPrefix("UID FETCH 11 ") {
                 let raw = ProtocolTests.rawMessage
                 return ok("* 2 FETCH (UID 11 BODY[] {\(raw.utf8.count)}\r\n\(raw))\r\n")
             }
             if command.hasPrefix("UID FETCH 99") { return ok() }
+            if command.hasPrefix("UID FETCH 11,10") {
+                return ok("* 2 FETCH (UID 11 FLAGS () INTERNALDATE \"17-Nov-2026 09:30:00 +0900\" RFC822.SIZE 1 "
+                    + "ENVELOPE (NIL \"hit\" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n")
+            }
+            if command.hasPrefix("UID SEARCH") {
+                state["searchTag"] = tag
+                return Data("+ go ahead\r\n".utf8)
+            }
             if command.hasPrefix("APPEND") {
                 state["appendTag"] = tag
                 return Data("+ go ahead\r\n".utf8)
@@ -89,6 +102,14 @@ final class ProtocolTests: XCTestCase {
         try client.move(uids: [10], to: "[Gmail]/Trash")
         try client.deletePermanently(uids: [11])
         try client.append(to: "Sent", message: Data("A: b\r\n\r\nbody".utf8))
+        XCTAssertEqual(try client.search(text: "회의"), [11, 10])
+        XCTAssertEqual(try client.fetchEnvelopes(uids: [11, 10]).map(\.subject), ["hit"])
+        XCTAssertEqual(try client.fetchEnvelopes(uids: []), [])
+        try client.createMailbox("New")
+        try client.renameMailbox("New", to: "Newer")
+        try client.deleteMailbox("INBOX")
+        XCTAssertNil(client.selectedPath)
+        try client.select("INBOX")
         try client.storeAll(flag: "\\Seen")
         try client.expungeAll()
         client.logout()
@@ -97,6 +118,9 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.hasSuffix("STORE 1:* +FLAGS.SILENT (\\Seen)") })
         XCTAssertTrue(lines.contains { $0.hasSuffix("STORE 1:* +FLAGS.SILENT (\\Deleted)") })
         XCTAssertTrue(lines.contains { $0.hasSuffix(" EXPUNGE") })
+        XCTAssertTrue(lines.contains("회의"))
+        XCTAssertTrue(lines.contains { $0.hasSuffix("RENAME \"New\" \"Newer\"") })
+        XCTAssertTrue(lines.contains { $0.hasSuffix("DELETE \"INBOX\"") })
         XCTAssertTrue(lines.contains { $0.hasSuffix("UID STORE 10,11 +FLAGS.SILENT (\\Seen)") })
         XCTAssertTrue(lines.contains { $0.hasSuffix("UID MOVE 10 \"[Gmail]/Trash\"") })
         XCTAssertTrue(lines.contains { $0.hasSuffix("UID EXPUNGE 11") })

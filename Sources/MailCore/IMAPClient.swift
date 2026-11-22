@@ -109,6 +109,41 @@ public final class IMAPClient {
         throw MailError.server("메시지를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.")
     }
 
+    /// 서버에서 본문·헤더 전체를 검색한다. UID를 최신순으로 돌려준다.
+    public func search(text: String) throws -> [UInt32] {
+        // 한글 등 8비트 문자는 리터럴로 보내야 한다.
+        let lines = try run("UID SEARCH CHARSET UTF-8 TEXT {\(text.utf8.count)}", literal: Data(text.utf8))
+        var uids: [UInt32] = []
+        for line in lines {
+            let words = self.text(line).split(separator: " ")
+            guard words.count >= 2, words[1].uppercased() == "SEARCH" else { continue }
+            uids.append(contentsOf: words.dropFirst(2).compactMap { UInt32($0) })
+        }
+        return uids.sorted(by: >)
+    }
+
+    public func fetchEnvelopes(uids: [UInt32]) throws -> [Envelope] {
+        guard !uids.isEmpty else { return [] }
+        let lines = try run("UID FETCH \(Self.set(uids)) (UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE)")
+        return lines.compactMap(Self.parseFetchLine).compactMap(EnvelopeParser.envelope).sorted { $0.uid > $1.uid }
+    }
+
+    public func createMailbox(_ path: String) throws {
+        try run("CREATE \(Self.quote(path))")
+    }
+
+    public func renameMailbox(_ path: String, to newPath: String) throws {
+        try run("RENAME \(Self.quote(path)) \(Self.quote(newPath))")
+    }
+
+    public func deleteMailbox(_ path: String) throws {
+        if selectedPath == path {
+            try run("CLOSE")
+            selectedPath = nil
+        }
+        try run("DELETE \(Self.quote(path))")
+    }
+
     public func store(uids: [UInt32], flag: String, add: Bool) throws {
         guard !uids.isEmpty else { return }
         try run("UID STORE \(Self.set(uids)) \(add ? "+" : "-")FLAGS.SILENT (\(flag))")

@@ -36,7 +36,7 @@ public final class MailSession {
                 let data = MessageBuilder.build(message)
                 let smtp = SMTPClient(host: account.smtpHost, port: account.smtpPort, security: account.smtpSecurity)
                 try smtp.send(username: account.username, password: password, from: account.email,
-                              recipients: (message.to + message.cc).map(\.email), message: data)
+                              recipients: (message.to + message.cc + message.bcc).map(\.email), message: data)
                 if let sentMailbox, !account.serverSavesSentMail {
                     // 보낸편지함 저장 실패는 발송 성공을 뒤집지 않는다.
                     perform({ try $0.append(to: sentMailbox.path, message: data) }, completion: { _ in })
@@ -46,6 +46,13 @@ public final class MailSession {
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
         }
+    }
+
+    /// 작성 중인 메일을 임시보관함에 저장한다.
+    public func saveDraft(_ message: OutgoingMessage, to mailbox: Mailbox,
+                          completion: @escaping (Result<Void, Error>) -> Void) {
+        let data = MessageBuilder.build(message)
+        perform({ try $0.append(to: mailbox.path, message: data, flags: ["\\Draft", "\\Seen"]) }, completion: completion)
     }
 
     public func disconnect() {

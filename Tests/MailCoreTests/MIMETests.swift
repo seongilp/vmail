@@ -133,6 +133,14 @@ final class MIMETests: XCTestCase {
         XCTAssertEqual(MIMEEntity(raw).headers["in-reply-to"], "<orig@example.com>")
     }
 
+    func testBccIsNotWrittenToHeaders() {
+        let outgoing = OutgoingMessage(from: Address(name: nil, email: "me@x.io"), to: [Address(name: nil, email: "a@x.io")],
+                                       cc: [], bcc: [Address(name: nil, email: "secret@x.io")], subject: "s", body: "b")
+        let raw = String(decoding: MessageBuilder.build(outgoing), as: UTF8.self)
+        XCTAssertFalse(raw.contains("secret@x.io"))
+        XCTAssertFalse(raw.lowercased().contains("bcc"))
+    }
+
     func testAddressListParsing() {
         XCTAssertEqual(MessageBuilder.parseAddressList("a@b.co, \"Kim, Lee\" <k@b.co>; 홍 <h@b.co>"), [
             Address(name: nil, email: "a@b.co"),

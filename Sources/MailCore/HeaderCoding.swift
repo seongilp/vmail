@@ -94,6 +94,38 @@ public enum HeaderCoding {
 
 /// IMAP 사서함 이름의 modified UTF-7 (RFC 3501 5.1.3) 디코딩.
 public enum ModifiedUTF7 {
+    /// 사서함 이름을 서버에 보낼 modified UTF-7로 인코딩한다.
+    public static func encode(_ text: String) -> String {
+        var result = ""
+        var pending: [UInt16] = []
+
+        func flush() {
+            guard !pending.isEmpty else { return }
+            var data = Data(capacity: pending.count * 2)
+            for unit in pending {
+                data.append(UInt8(unit >> 8))
+                data.append(UInt8(unit & 0xFF))
+            }
+            let b64 = data.base64EncodedString().replacingOccurrences(of: "=", with: "").replacingOccurrences(of: "/", with: ",")
+            result += "&" + b64 + "-"
+            pending = []
+        }
+
+        for unit in text.utf16 {
+            if unit == 0x26 {                     // "&"
+                flush()
+                result += "&-"
+            } else if unit >= 0x20 && unit <= 0x7E {
+                flush()
+                result.unicodeScalars.append(Unicode.Scalar(UInt8(unit)))
+            } else {
+                pending.append(unit)
+            }
+        }
+        flush()
+        return result
+    }
+
     public static func decode(_ text: String) -> String {
         guard text.contains("&") else { return text }
         var result = ""

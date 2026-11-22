@@ -145,13 +145,19 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
 
     private func reload(keepSelection: Bool) {
         let previous = Set(keepSelection ? selectedEnvelopes.map(\.uid) : [])
+        let previousFirstRow = tableView.selectedRowIndexes.first
         let state = store.selectedMailbox.map(store.state(for:)) ?? MailboxListState()
         rows = filter.isEmpty ? state.envelopes : state.envelopes.filter(matchesFilter)
 
         isReloading = true
         tableView.reloadData()
-        let restored = IndexSet(rows.indices.filter { previous.contains(rows[$0].uid) })
+        var restored = IndexSet(rows.indices.filter { previous.contains(rows[$0].uid) })
+        // 선택했던 메일이 사라졌으면(삭제·이동) 그 자리에 올라온 다음 메일을 선택해 흐름이 끊기지 않게 한다.
+        if restored.isEmpty, keepSelection, let row = previousFirstRow, !rows.isEmpty {
+            restored = [min(row, rows.count - 1)]
+        }
         tableView.selectRowIndexes(restored, byExtendingSelection: false)
+        if let first = restored.first { tableView.scrollRowToVisible(first) }
         isReloading = false
 
         updateStatus(state)
