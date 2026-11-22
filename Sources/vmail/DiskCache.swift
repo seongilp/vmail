@@ -29,6 +29,18 @@ final class DiskCache {
         save(envelopes, to: Self.envelopeFile(path))
     }
 
+    /// 목록 미리보기 (UID → 본문 앞부분)
+    func loadPreviews(path: String) -> [UInt32: String] {
+        let stored = load([String: String].self, from: Self.previewFile(path)) ?? [:]
+        return stored.reduce(into: [:]) { result, entry in
+            if let uid = UInt32(entry.key) { result[uid] = entry.value }
+        }
+    }
+
+    func savePreviews(_ previews: [UInt32: String], path: String) {
+        save(previews.reduce(into: [String: String]()) { $0["\($1.key)"] = $1.value }, to: Self.previewFile(path))
+    }
+
     func removeAll() {
         let directory = self.directory
         queue.async {
@@ -63,6 +75,10 @@ final class DiskCache {
                 NSLog("vmail: 캐시 저장 실패(\(file)) — \(error.localizedDescription)")
             }
         }
+    }
+
+    private static func previewFile(_ path: String) -> String {
+        "previews-\(safeName(path)).json"
     }
 
     private static func envelopeFile(_ path: String) -> String {

@@ -60,6 +60,10 @@ extension MainWindowController {
         window?.makeFirstResponder(field)
     }
 
+    @objc func toggleConversations(_ sender: Any?) {
+        Preferences.groupByConversation.toggle()
+    }
+
     @objc func toggleUnreadOnly(_ sender: Any?) {
         list.toggleUnreadOnly()
     }
@@ -197,6 +201,9 @@ extension MainWindowController {
             return !targets.isEmpty && store?.archiveMailbox != nil && store?.selectedMailbox?.role != .all
         case #selector(junkMessage(_:)):
             return !targets.isEmpty && store?.junkMailbox != nil && store?.selectedMailbox?.role != .junk
+        case #selector(toggleConversations(_:)):
+            menuItem?.state = Preferences.groupByConversation ? .on : .off
+            return true
         case #selector(toggleUnreadOnly(_:)):
             menuItem?.state = list.unreadOnly ? .on : .off
             return store != nil

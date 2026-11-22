@@ -46,6 +46,10 @@ final class MailStore {
     private(set) var session: MailSession?
     private var cache: DiskCache?
     private(set) var states: [String: MailboxListState] = [:]
+    /// 사서함별 목록 미리보기 (UID → 본문 앞부분). 빈 문자열은 ‘미리보기 없음’으로 확인된 메일.
+    private var previews: [String: [UInt32: String]] = [:]
+    private var previewsLoading: Set<String> = []
+    private static let previewBatch = 60
     private let bodies = NSCache<NSString, MessageBox>()
     private var refreshTimer: Timer?
 
@@ -109,6 +113,7 @@ final class MailStore {
         selectedMailbox = mailbox
         if states[mailbox.path] == nil {
             states[mailbox.path] = MailboxListState(envelopes: cache?.loadEnvelopes(path: mailbox.path) ?? [])
+            previews[mailbox.path] = cache?.loadPreviews(path: mailbox.path) ?? [:]
         }
         post(Self.selectionDidChange)
         refresh()
@@ -160,6 +165,7 @@ final class MailStore {
                     $0.error = nil
                 }
                 self.cache?.saveEnvelopes(Array(envelopes.prefix(Self.pageSize)), path: path)
+                self.ensurePreviews(for: mailbox)
             case .failure(let error):
                 self.update(mailbox) {
                     $0.isLoading = false
@@ -187,6 +193,38 @@ final class MailStore {
         var info: [String: Any] = ["path": mailbox.path]
         if let mutation { info["mutation"] = mutation }
         NotificationCenter.default.post(name: Self.messagesDidChange, object: self, userInfo: info)
+    }
+
+    // MARK: - 목록 미리보기
+
+    func preview(for envelope: Envelope, in mailbox: Mailbox) -> String? {
+        previews[mailbox.path]?[envelope.uid]
+    }
+
+    /// 아직 미리보기가 없는 메일을 최신순으로 한 묶음씩 가져온다. 목록 표시를 막지 않도록 봉투 조회와 분리돼 있다.
+    func ensurePreviews(for mailbox: Mailbox) {
+        guard Preferences.listPreviewLines > 0, let session, !previewsLoading.contains(mailbox.path) else { return }
+        let known = previews[mailbox.path] ?? [:]
+        let missing = state(for: mailbox).envelopes.map(\.uid).filter { known[$0] == nil }.prefix(Self.previewBatch)
+        guard !missing.isEmpty else { return }
+        let path = mailbox.path
+        let uids = Array(missing)
+        previewsLoading.insert(path)
+        session.perform({ client -> [UInt32: String] in
+            try client.ensureSelected(path)
+            return try client.fetchPreviews(uids: uids)
+        }) { [weak self] result in
+            guard let self, self.session === session else { return }
+            self.previewsLoading.remove(path)
+            guard case .success(let fetched) = result else { return }   // 미리보기는 부가 정보 — 실패해도 목록은 그대로
+            // 지금 목록에 있는 메일의 미리보기만 남겨 캐시가 끝없이 커지지 않게 한다.
+            let current = Set(self.state(for: mailbox).envelopes.map(\.uid))
+            let merged = (self.previews[path] ?? [:]).merging(fetched) { _, new in new }.filter { current.contains($0.key) }
+            self.previews[path] = merged
+            self.cache?.savePreviews(merged, path: path)
+            NotificationCenter.default.post(name: Self.messagesDidChange, object: self, userInfo: ["path": path])
+            self.ensurePreviews(for: mailbox)   // 남은 묶음 이어서
+        }
     }
 
     // MARK: - 본문

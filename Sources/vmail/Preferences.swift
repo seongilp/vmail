@@ -25,6 +25,7 @@ enum Preferences {
         "quoteColor2": defaultQuoteColors[2],
         "deleteDestination": DeleteDestination.trash.rawValue, "selectNextAfterRemoval": true,
         "boldUnread": true, "smartAddresses": true, "darkMessageBackground": true,
+        "listPreviewLines": 1, "groupByConversation": true,
         "markRead": MarkRead.immediately.rawValue,
         "checkSpelling": true, "copySelf": CopySelf.none.rawValue, "defaultAccountEmail": "",
         "undoSendDelay": 0, "quoteOriginal": true, "increaseQuoteLevel": true,
@@ -174,6 +175,18 @@ enum Preferences {
     static var selectNextAfterRemoval: Bool {
         get { get("selectNextAfterRemoval") }
         set { set("selectNextAfterRemoval", newValue) }
+    }
+
+    /// 목록에 보여줄 본문 미리보기 줄 수 (0이면 숨김)
+    static var listPreviewLines: Int {
+        get { max(0, min(2, get("listPreviewLines") as Int)) }
+        set { set("listPreviewLines", newValue) }
+    }
+
+    /// 같은 대화의 메일을 한 줄로 묶어 보여줄지
+    static var groupByConversation: Bool {
+        get { get("groupByConversation") }
+        set { set("groupByConversation", newValue) }
     }
 
     static var boldUnread: Bool {

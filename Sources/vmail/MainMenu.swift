@@ -78,6 +78,7 @@ enum MainMenu {
 
     private static func viewMenu() -> NSMenu {
         let menu = NSMenu(title: "보기")
+        menu.addItem(item("대화로 묶기", #selector(MainWindowController.toggleConversations(_:)), "g", [.command, .option]))
         menu.addItem(item("읽지 않은 메일만 보기", #selector(MainWindowController.toggleUnreadOnly(_:)), "u", [.command, .option]))
         menu.addItem(.separator())
         menu.addItem(item("확대", #selector(MainWindowController.zoomIn(_:)), "+"))

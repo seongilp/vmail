@@ -118,9 +118,16 @@ public struct Envelope: Codable, Hashable, Sendable {
     public let cc: [Address]
     public let replyTo: [Address]
     public let messageID: String?
+    /// 이 메일이 답한 메일의 Message-ID
+    public let inReplyTo: String?
+    /// 서버가 알려 준 대화 ID (Gmail의 X-GM-THRID)
+    public let threadID: String?
 
     public init(uid: UInt32, flags: [String], date: Date, size: Int, subject: String,
-                from: [Address], to: [Address], cc: [Address], replyTo: [Address], messageID: String?) {
+                from: [Address], to: [Address], cc: [Address], replyTo: [Address], messageID: String?,
+                inReplyTo: String? = nil, threadID: String? = nil) {
+        self.inReplyTo = inReplyTo
+        self.threadID = threadID
         self.uid = uid
         self.flags = flags
         self.date = date
@@ -144,7 +151,8 @@ public struct Envelope: Codable, Hashable, Sendable {
     public func settingFlag(_ flag: String, _ on: Bool) -> Envelope {
         let without = flags.filter { $0.caseInsensitiveCompare(flag) != .orderedSame }
         return Envelope(uid: uid, flags: on ? without + [flag] : without, date: date, size: size,
-                        subject: subject, from: from, to: to, cc: cc, replyTo: replyTo, messageID: messageID)
+                        subject: subject, from: from, to: to, cc: cc, replyTo: replyTo, messageID: messageID,
+                        inReplyTo: inReplyTo, threadID: threadID)
     }
 }
 

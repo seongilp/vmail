@@ -210,6 +210,14 @@ final class ViewingSettingsViewController: NSViewController {
             Preferences.selectNextAfterRemoval = $0
         }
         form.gap()
+        form.popup("목록 미리보기:", options: ["없음", "1줄", "2줄"], selected: Preferences.listPreviewLines) {
+            Preferences.listPreviewLines = $0
+        }
+        form.checkbox("같은 대화의 메일을 한 줄로 묶기", isOn: Preferences.groupByConversation) {
+            Preferences.groupByConversation = $0
+        }
+        form.note("묶인 대화는 개수 배지나 → 키로 펼칩니다.")
+        form.gap()
         form.checkbox("읽지 않은 메일을 굵게 표시", label: "표시:", isOn: Preferences.boldUnread) { Preferences.boldUnread = $0 }
         form.checkbox("스마트 주소 사용", isOn: Preferences.smartAddresses) { Preferences.smartAddresses = $0 }
         form.note("끄면 받는 사람의 이름과 주소를 항상 함께 표시합니다.")

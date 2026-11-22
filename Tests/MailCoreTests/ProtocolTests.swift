@@ -51,6 +51,13 @@ final class ProtocolTests: XCTestCase {
                 return ok("* 2 FETCH (UID 11 BODY[] {\(raw.utf8.count)}\r\n\(raw))\r\n")
             }
             if command.hasPrefix("UID FETCH 99") { return ok() }
+            if command == "UID FETCH 20,21 (UID BODYSTRUCTURE)" {
+                return ok("* 1 FETCH (UID 20 BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" \"utf-8\") NIL NIL \"7BIT\" 9 1))\r\n"
+                    + "* 2 FETCH (UID 21 BODYSTRUCTURE (\"IMAGE\" \"PNG\" NIL NIL NIL \"BASE64\" 5))\r\n")
+            }
+            if command == "UID FETCH 20 (UID BODY.PEEK[1]<0.1024>)" {
+                return ok("* 1 FETCH (UID 20 BODY[1]<0> {11}\r\nhello world)\r\n")
+            }
             if command.hasPrefix("UID FETCH 12 (BODY.PEEK[HEADER.FIELDS") {
                 let head = "List-Id: <dev.example.com>\r\nPrecedence: bulk\r\n\r\n"
                 return ok("* 3 FETCH (UID 12 BODY[HEADER.FIELDS (LIST-ID PRECEDENCE)] {\(head.utf8.count)}\r\n\(head))\r\n")
@@ -110,6 +117,8 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(headers["list-id"], "<dev.example.com>")
         XCTAssertEqual(headers["precedence"], "bulk")
         XCTAssertNil(try client.fetchHeaders(uid: 99, fields: ["LIST-ID"])["list-id"])
+        XCTAssertEqual(try client.fetchPreviews(uids: [20, 21]), [20: "hello world", 21: ""])
+        XCTAssertEqual(try client.fetchPreviews(uids: []), [:])
         XCTAssertEqual(try client.search(text: "회의"), [11, 10])
         XCTAssertEqual(try client.search(text: "a@x.io", field: .from), [11, 10])
         XCTAssertEqual(try client.fetchEnvelopes(uids: [11, 10]).map(\.subject), ["hit"])

@@ -102,8 +102,39 @@ public final class IMAPClient {
 
     /// 시퀀스 번호 범위의 봉투 정보를 가져온다. 최신(UID 큰 순)이 앞에 온다.
     public func fetchEnvelopes(_ range: ClosedRange<Int>) throws -> [Envelope] {
-        let lines = try run("FETCH \(range.lowerBound):\(range.upperBound) (UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE)")
+        let lines = try run("FETCH \(range.lowerBound):\(range.upperBound) (\(envelopeItems))")
         return lines.compactMap(Self.parseFetchLine).compactMap(EnvelopeParser.envelope).sorted { $0.uid > $1.uid }
+    }
+
+    /// 목록에 필요한 항목. Gmail이면 대화 ID도 함께 받는다.
+    private var envelopeItems: String {
+        "UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE" + (capabilities.contains("X-GM-EXT-1") ? " X-GM-THRID" : "")
+    }
+
+    /// 목록 미리보기: 본문 구조에서 첫 텍스트 파트를 찾아 앞부분만 가져온다.
+    /// 봉투 조회와 분리해, 구조 해석이 실패해도 목록에는 영향이 없게 한다.
+    public func fetchPreviews(uids: [UInt32]) throws -> [UInt32: String] {
+        guard !uids.isEmpty else { return [:] }
+        var parts: [UInt32: PreviewPart] = [:]
+        for line in try run("UID FETCH \(Self.set(uids)) (UID BODYSTRUCTURE)") {
+            guard let items = Self.parseFetchLine(line), let uid = UInt32(items["UID"]?.stringValue ?? ""),
+                  let structure = items["BODYSTRUCTURE"], let part = BodyStructure.previewPart(structure) else { continue }
+            parts[uid] = part
+        }
+        var previews: [UInt32: String] = [:]
+        // 같은 파트 번호끼리 묶어 한 번에 요청한다.
+        for (section, group) in Dictionary(grouping: parts.keys, by: { parts[$0]?.section ?? "1" }) {
+            let lines = try run("UID FETCH \(Self.set(group.sorted())) (UID BODY.PEEK[\(section)]<0.\(PreviewText.fetchBytes)>)")
+            for line in lines {
+                guard let items = Self.parseFetchLine(line), let uid = UInt32(items["UID"]?.stringValue ?? ""),
+                      let part = parts[uid],
+                      let data = items.first(where: { $0.key.hasPrefix("BODY[") })?.value.dataValue else { continue }
+                previews[uid] = PreviewText.make(data, part: part)
+            }
+        }
+        // 텍스트 파트가 없는 메일도 다시 묻지 않도록 빈 미리보기로 기록한다.
+        for uid in uids where previews[uid] == nil { previews[uid] = "" }
+        return previews
     }
 
     /// 메시지 원문 전체. \Seen 플래그는 건드리지 않는다.
@@ -130,7 +161,7 @@ public final class IMAPClient {
 
     public func fetchEnvelopes(uids: [UInt32]) throws -> [Envelope] {
         guard !uids.isEmpty else { return [] }
-        let lines = try run("UID FETCH \(Self.set(uids)) (UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE)")
+        let lines = try run("UID FETCH \(Self.set(uids)) (\(envelopeItems))")
         return lines.compactMap(Self.parseFetchLine).compactMap(EnvelopeParser.envelope).sorted { $0.uid > $1.uid }
     }
 
@@ -319,7 +350,9 @@ enum EnvelopeParser {
             to: addresses(env[5]),
             cc: addresses(env[6]),
             replyTo: addresses(env[4]),
-            messageID: env[9].stringValue
+            messageID: env[9].stringValue,
+            inReplyTo: env[8].stringValue,
+            threadID: items["X-GM-THRID"]?.stringValue
         )
     }
 
