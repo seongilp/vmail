@@ -11,6 +11,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private var root: SidebarNode?
     private var isReloading = false
+    /// 계정 줄을 골랐는지 — 계정 줄은 받은편지함을 보여주되 강조는 계정 줄에 남긴다.
+    private var accountRowSelected = false
     /// 사용자가 접어 둔 줄 — 새로 고쳐도, 다시 실행해도 유지한다.
     private var collapsed = Set(UserDefaults.standard.stringArray(forKey: SidebarViewController.collapsedKey) ?? [])
 
@@ -105,10 +107,12 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     @objc private func syncSelection() {
         isReloading = true
         defer { isReloading = false }
-        guard let root, let selected = store.selectedMailbox, let node = find(selected.path, in: root) else {
+        guard let root, let selected = store.selectedMailbox, let found = find(selected.path, in: root) else {
             outlineView.deselectAll(nil)
             return
         }
+        if selected.role != .inbox { accountRowSelected = false }
+        let node = accountRowSelected ? root : found
         let row = outlineView.row(forItem: node)   // 접힌 부모 안에 있으면 -1
         if row >= 0 {
             outlineView.selectRowIndexes([row], byExtendingSelection: false)
@@ -159,13 +163,16 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     }
 
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-        (item as? SidebarNode)?.mailbox != nil
+        guard let node = item as? SidebarNode else { return false }
+        return node.mailbox != nil || node.isAccount
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
-        guard !isReloading, let node = outlineView.item(atRow: outlineView.selectedRow) as? SidebarNode,
-              let mailbox = node.mailbox else { return }
-        store.select(mailbox)
+        guard !isReloading, let node = outlineView.item(atRow: outlineView.selectedRow) as? SidebarNode else { return }
+        accountRowSelected = node.isAccount
+        // 계정 줄은 그 계정의 받은편지함을 연다.
+        let target = node.isAccount ? store.mailboxes.first { $0.role == .inbox } : node.mailbox
+        if let target { store.select(target) }
     }
 
     func outlineViewItemDidCollapse(_ notification: Notification) {
