@@ -18,7 +18,8 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     private let signInButton = NSButton(title: "로그인", target: nil, action: nil)
     private let importButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private var importable: [ImportableAccount] = []
-    private let appPasswordButton = NSButton(title: "앱 비밀번호 발급 페이지 열기", target: nil, action: nil)
+    private let appPasswordButton = NSButton(title: "앱 비밀번호 만들기", target: nil, action: nil)
+    private let clipboardWatcher = ClipboardWatcher()
 
     /// 앱 비밀번호를 발급하는 공식 페이지 (도메인별)
     private static let appPasswordPages: [String: String] = [
@@ -31,7 +32,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     /// 사용자가 서버 칸을 직접 고쳤으면 자동 채움을 멈춘다.
     private var serverEdited = false
 
-    private static let hint = "Gmail · 네이버 · iCloud 등은 2단계 인증용 ‘앱 비밀번호’를 입력해야 합니다. 다른 메일 앱에서 쓰던 계정은 ‘키체인에서 가져오기’로 불러올 수 있습니다. 비밀번호는 이 Mac의 키체인에만 저장됩니다."
+    private static let hint = "Gmail · iCloud는 주소를 입력하고 ‘앱 비밀번호 만들기’를 누르면 복사만으로 로그인됩니다. 다른 메일 앱에서 쓰던 계정은 ‘키체인에서 가져오기’로 불러올 수 있습니다. 비밀번호는 이 Mac의 키체인에만 저장됩니다."
 
     init(store: MailStore) {
         self.store = store
@@ -166,15 +167,30 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     private var appPasswordPage: URL? {
         let domain = emailField.stringValue.components(separatedBy: "@").last?
             .trimmingCharacters(in: .whitespaces).lowercased() ?? ""
-        return Self.appPasswordPages[domain].flatMap(URL.init(string:))
+        guard let page = Self.appPasswordPages[domain], var components = URLComponents(string: page) else { return nil }
+        if page.contains("google.com") {
+            // 여러 Google 계정에 로그인돼 있어도 입력한 계정의 페이지가 열리게 한다.
+            components.queryItems = [URLQueryItem(name: "authuser", value: emailField.stringValue.trimmingCharacters(in: .whitespaces))]
+        }
+        return components.url
     }
 
     private func updateAppPasswordButton() {
         appPasswordButton.isHidden = appPasswordPage == nil
+        if appPasswordPage == nil { clipboardWatcher.stop() }
     }
 
+    /// 발급 페이지를 열고, 사용자가 비밀번호를 복사하면 자동으로 채워 로그인한다.
     @objc private func openAppPasswordPage() {
-        if let url = appPasswordPage { NSWorkspace.shared.open(url) }
+        guard let url = appPasswordPage else { return }
+        NSWorkspace.shared.open(url)
+        showMessage("브라우저에서 앱 비밀번호를 만든 뒤 복사하세요. 복사하면 자동으로 입력하고 로그인합니다. (2단계 인증이 켜져 있어야 합니다)", isError: false)
+        clipboardWatcher.start { [weak self] password in
+            guard let self, self.window?.sheetParent != nil else { return }
+            self.passwordField.stringValue = password
+            NSApp.activate(ignoringOtherApps: true)
+            self.signIn()
+        }
     }
 
     func controlTextDidChange(_ note: Notification) {
@@ -250,7 +266,9 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
 
     @objc private func signIn() {
         guard let account = validatedAccount() else { return }
-        let password = passwordField.stringValue
+        // 앱 비밀번호를 공백째 붙여 넣어도 되도록 정리한다.
+        let password = AppPassword.normalize(passwordField.stringValue) ?? passwordField.stringValue
+        clipboardWatcher.stop()
         setBusy(true)
         showMessage("서버에 연결하는 중…", isError: false)
         store.signIn(account: account, password: password) { [weak self] error in
@@ -268,7 +286,15 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     private func validatedAccount() -> Account? {
         let email = emailField.stringValue.trimmingCharacters(in: .whitespaces)
         guard MessageBuilder.isValidEmail(email) else { return fail("이메일 주소를 확인하세요.", emailField) }
-        guard !passwordField.stringValue.isEmpty else { return fail("비밀번호를 입력하세요.", passwordField) }
+        guard !passwordField.stringValue.isEmpty else {
+            // 비밀번호 없이 로그인을 누르면, 발급 페이지가 있는 서비스는 바로 그 페이지를 띄운다.
+            if appPasswordPage != nil {
+                openAppPasswordPage()
+                window?.makeFirstResponder(passwordField)
+                return nil
+            }
+            return fail("비밀번호를 입력하세요.", passwordField)
+        }
         let username = usernameField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !username.isEmpty else { return fail("사용자 이름을 입력하세요.", usernameField) }
         let imapHost = imapHostField.stringValue.trimmingCharacters(in: .whitespaces)
@@ -310,6 +336,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     }
 
     private func dismiss() {
+        clipboardWatcher.stop()
         guard let window, let parent = window.sheetParent else { return }
         parent.endSheet(window)
     }

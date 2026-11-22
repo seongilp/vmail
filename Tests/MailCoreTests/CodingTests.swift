@@ -54,6 +54,16 @@ final class CodingTests: XCTestCase {
         XCTAssertEqual(Charset.decode(Data([0xC7, 0xD1, 0xB1, 0xDB]), charset: nil), "한글")
     }
 
+    func testAppPasswordNormalization() {
+        XCTAssertEqual(AppPassword.normalize(" abcd efgh ijkl mnop\n"), "abcdefghijklmnop")
+        XCTAssertEqual(AppPassword.normalize("abcdefghijklmnop"), "abcdefghijklmnop")
+        XCTAssertEqual(AppPassword.normalize("abcd-efgh-ijkl-mnop"), "abcd-efgh-ijkl-mnop")
+        XCTAssertNil(AppPassword.normalize("hello world"))
+        XCTAssertNil(AppPassword.normalize("abcd efgh ijkl mno1"))
+        XCTAssertNil(AppPassword.normalize("ABCD EFGH IJKL MNOP"))
+        XCTAssertNil(AppPassword.normalize(""))
+    }
+
     func testMessageDate() {
         let date = MessageDate.parse("Tue, 17 Nov 2026 09:30:00 +0900 (KST)")
         XCTAssertEqual(date, Date(timeIntervalSince1970: 1_794_875_400))
