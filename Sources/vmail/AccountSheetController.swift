@@ -17,12 +17,17 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     ]
 
     /// 창 위에 계정 시트를 띄운다. editing을 주면 그 계정을 수정한다.
-    static func present(on window: NSWindow, manager: AccountManager, editing: MailStore? = nil) {
+    /// prefill: 가져온 설정처럼 서버 정보는 있고 비밀번호만 필요한 계정. onEnd: 시트가 닫힌 뒤 호출.
+    static func present(on window: NSWindow, manager: AccountManager, editing: MailStore? = nil,
+                        prefill: Account? = nil, onEnd: (() -> Void)? = nil) {
         guard active == nil else { return }
-        let controller = AccountSheetController(manager: manager, editing: editing)
+        let controller = AccountSheetController(manager: manager, editing: editing, prefill: prefill)
         guard let sheet = controller.window else { return }
         active = controller
-        window.beginSheet(sheet) { _ in active = nil }
+        window.beginSheet(sheet) { _ in
+            active = nil
+            onEnd?()
+        }
     }
     private let nameField = NSTextField()
     private let emailField = NSTextField()
@@ -54,14 +59,14 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
 
     private static let hint = "Gmail · iCloud는 주소를 입력하고 ‘앱 비밀번호 만들기’를 누르면 복사만으로 로그인됩니다. 다른 메일 앱에서 쓰던 계정은 ‘키체인에서 가져오기’로 불러올 수 있습니다. 비밀번호는 이 Mac의 키체인에만 저장됩니다."
 
-    private init(manager: AccountManager, editing: MailStore?) {
+    private init(manager: AccountManager, editing: MailStore?, prefill: Account?) {
         self.manager = manager
         self.editing = editing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
                               styleMask: [.titled], backing: .buffered, defer: false)
         super.init(window: window)
         buildContent(in: window)
-        if let account = editing?.account {
+        if let account = editing?.account ?? prefill {
             nameField.stringValue = account.displayName
             emailField.stringValue = account.email
             passwordField.stringValue = Keychain.password(account: account.email) ?? ""
@@ -75,7 +80,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
         }
         providerControl.target = self
         providerControl.action = #selector(providerChanged)
-        window.initialFirstResponder = emailField
+        window.initialFirstResponder = prefill == nil ? emailField : passwordField
         connectKeyViewLoop()
         loadImportableAccounts()
     }

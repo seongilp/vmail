@@ -177,9 +177,12 @@ public struct OutgoingMessage: Sendable {
     public let body: String
     public let attachments: [Attachment]
     public let inReplyTo: String?
+    /// 자동 응답이면 상대 서버가 다시 자동 응답하지 않도록 표시한다.
+    public let isAutoReply: Bool
 
     public init(from: Address, to: [Address], cc: [Address], bcc: [Address] = [], subject: String, body: String,
-                attachments: [Attachment] = [], inReplyTo: String? = nil) {
+                attachments: [Attachment] = [], inReplyTo: String? = nil, isAutoReply: Bool = false) {
+        self.isAutoReply = isAutoReply
         self.from = from
         self.to = to
         self.cc = cc

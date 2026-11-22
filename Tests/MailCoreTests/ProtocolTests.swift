@@ -51,6 +51,10 @@ final class ProtocolTests: XCTestCase {
                 return ok("* 2 FETCH (UID 11 BODY[] {\(raw.utf8.count)}\r\n\(raw))\r\n")
             }
             if command.hasPrefix("UID FETCH 99") { return ok() }
+            if command.hasPrefix("UID FETCH 12 (BODY.PEEK[HEADER.FIELDS") {
+                let head = "List-Id: <dev.example.com>\r\nPrecedence: bulk\r\n\r\n"
+                return ok("* 3 FETCH (UID 12 BODY[HEADER.FIELDS (LIST-ID PRECEDENCE)] {\(head.utf8.count)}\r\n\(head))\r\n")
+            }
             if command.hasPrefix("UID FETCH 11,10") {
                 return ok("* 2 FETCH (UID 11 FLAGS () INTERNALDATE \"17-Nov-2026 09:30:00 +0900\" RFC822.SIZE 1 "
                     + "ENVELOPE (NIL \"hit\" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n")
@@ -102,6 +106,10 @@ final class ProtocolTests: XCTestCase {
         try client.move(uids: [10], to: "[Gmail]/Trash")
         try client.deletePermanently(uids: [11])
         try client.append(to: "Sent", message: Data("A: b\r\n\r\nbody".utf8))
+        let headers = try client.fetchHeaders(uid: 12, fields: ["LIST-ID", "PRECEDENCE"])
+        XCTAssertEqual(headers["list-id"], "<dev.example.com>")
+        XCTAssertEqual(headers["precedence"], "bulk")
+        XCTAssertNil(try client.fetchHeaders(uid: 99, fields: ["LIST-ID"])["list-id"])
         XCTAssertEqual(try client.search(text: "회의"), [11, 10])
         XCTAssertEqual(try client.fetchEnvelopes(uids: [11, 10]).map(\.subject), ["hit"])
         XCTAssertEqual(try client.fetchEnvelopes(uids: []), [])

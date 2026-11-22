@@ -29,7 +29,10 @@ extension MailStore {
         let old = state(for: mailbox)
         guard mailbox.role == .inbox, old.hasLoaded else { return }
         let lastKnown = old.envelopes.first?.uid ?? 0
-        NewMailNotifier.notify(fresh.filter { $0.uid > lastKnown && !$0.isSeen })
+        let arrived = fresh.filter { $0.uid > lastKnown && !$0.isSeen }
+        // 규칙으로 치워진 메일은 알리지 않는다.
+        let remaining = MailAutomation.process(arrived, store: self, inbox: mailbox)
+        NewMailNotifier.notify(remaining)
     }
 
     // MARK: - 이동 / 완전 삭제
@@ -67,6 +70,16 @@ extension MailStore {
             self.reload(mailbox)
             self.refreshUnread()
         }
+    }
+
+    func fetchHeaders(_ envelope: Envelope, in mailbox: Mailbox, fields: [String],
+                      completion: @escaping (Result<MIMEHeaders, Error>) -> Void) {
+        guard let session else { return }
+        let path = mailbox.path
+        session.perform({ client -> MIMEHeaders in
+            try client.ensureSelected(path)
+            return try client.fetchHeaders(uid: envelope.uid, fields: fields)
+        }, completion: completion)
     }
 
     // MARK: - 검색 / 원문

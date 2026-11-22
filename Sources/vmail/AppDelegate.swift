@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var mailboxMenu = MailboxMenu(manager: manager)
     private var mainWindowController: MainWindowController?
     private var settingsController: SettingsWindowController?
+    private lazy var transfer = SettingsTransfer(manager: manager)
     /// 창이 준비되기 전에 들어온 mailto: 링크
     private var pendingURLs: [URL] = []
 
@@ -69,6 +70,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func addAccount(_ sender: Any?) {
         mainWindowController?.showWindow(nil)
         mainWindowController?.showAccountSheet()
+    }
+
+    @objc func exportSettings(_ sender: Any?) {
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
+        transfer.export(from: window)
+    }
+
+    @objc func importSettings(_ sender: Any?) {
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else { return }
+        transfer.importSettings(into: window)
     }
 
     private var settings: SettingsWindowController {

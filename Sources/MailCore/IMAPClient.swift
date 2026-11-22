@@ -144,6 +144,18 @@ public final class IMAPClient {
         try run("DELETE \(Self.quote(path))")
     }
 
+    /// 지정한 헤더 필드만 가져온다 (본문은 받지 않는다).
+    public func fetchHeaders(uid: UInt32, fields: [String]) throws -> MIMEHeaders {
+        let lines = try run("UID FETCH \(uid) (BODY.PEEK[HEADER.FIELDS (\(fields.joined(separator: " ")))])")
+        for line in lines {
+            guard let items = Self.parseFetchLine(line) else { continue }
+            if let data = items.first(where: { $0.key.hasPrefix("BODY[HEADER") })?.value.dataValue {
+                return MIMEHeaders.parse(data)
+            }
+        }
+        return MIMEHeaders(fields: [])
+    }
+
     public func store(uids: [UInt32], flag: String, add: Bool) throws {
         guard !uids.isEmpty else { return }
         try run("UID STORE \(Self.set(uids)) \(add ? "+" : "-")FLAGS.SILENT (\(flag))")

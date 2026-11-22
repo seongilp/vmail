@@ -9,6 +9,10 @@ public struct HeaderValue: Equatable {
 public struct MIMEHeaders {
     public let fields: [(name: String, value: String)]
 
+    public init(fields: [(name: String, value: String)] = []) {
+        self.fields = fields
+    }
+
     public subscript(_ name: String) -> String? {
         let key = name.lowercased()
         return fields.first { $0.name == key }?.value

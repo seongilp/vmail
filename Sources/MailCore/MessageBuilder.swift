@@ -22,6 +22,10 @@ public enum MessageBuilder {
             headers.append("In-Reply-To: \(reply)")
             headers.append("References: \(reply)")
         }
+        if message.isAutoReply {
+            headers.append("Auto-Submitted: auto-replied")
+            headers.append("X-Auto-Response-Suppress: All")
+        }
         headers.append("MIME-Version: 1.0")
 
         let textPart = "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"

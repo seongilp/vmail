@@ -20,6 +20,8 @@ final class SettingsWindowController: NSWindowController {
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(Self.tab(GeneralSettingsViewController(), "일반", "gearshape"))
         tabs.addTabViewItem(Self.tab(AccountsSettingsViewController(manager: manager), "계정", "at"))
+        tabs.addTabViewItem(Self.tab(RulesSettingsViewController(manager: manager), "규칙", "line.3.horizontal.decrease.circle"))
+        tabs.addTabViewItem(Self.tab(AutoReplySettingsViewController(), "부재중", "moon.zzz"))
         window.contentViewController = tabs
         window.center()
     }
@@ -42,8 +44,16 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
-/// 일반: 알림, 원격 이미지, 서명
+/// 일반: 알림, 원격 이미지, 서명, 설정 내보내기·가져오기
 final class GeneralSettingsViewController: NSViewController, NSTextViewDelegate {
+    /// 가져오기로 값이 바뀌었을 수 있으니 탭을 열 때마다 다시 읽는다.
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        notifyBox.state = Preferences.notifyNewMail ? .on : .off
+        remoteBox.state = Preferences.alwaysLoadRemoteContent ? .on : .off
+        if signatureView.string != Preferences.signature { signatureView.string = Preferences.signature }
+    }
+
     private let notifyBox = NSButton(checkboxWithTitle: "새 메일이 오면 알림 표시", target: nil, action: nil)
     private let remoteBox = NSButton(checkboxWithTitle: "원격 이미지 항상 불러오기", target: nil, action: nil)
     private let signatureView = NSTextView()
@@ -89,7 +99,15 @@ final class GeneralSettingsViewController: NSViewController, NSTextViewDelegate 
         let margin = SettingsWindowController.margin
         let labelWidth: CGFloat = 40
         let container = NSView()
-        for sub in [mailLabel, options, signatureLabel, scroll] as [NSView] {
+        let exportButton = NSButton(title: "설정 내보내기…", target: nil, action: #selector(AppDelegate.exportSettings(_:)))
+        let importButton = NSButton(title: "설정 가져오기…", target: nil, action: #selector(AppDelegate.importSettings(_:)))
+        for button in [exportButton, importButton] {
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+        }
+        let backupButtons = NSStackView(views: [exportButton, importButton])
+        backupButtons.spacing = 8
+        for sub in [mailLabel, options, signatureLabel, scroll, backupButtons] as [NSView] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(sub)
         }
@@ -108,7 +126,9 @@ final class GeneralSettingsViewController: NSViewController, NSTextViewDelegate 
             scroll.topAnchor.constraint(equalTo: options.bottomAnchor, constant: 14),
             scroll.leadingAnchor.constraint(equalTo: options.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -margin),
-            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -margin),
+            scroll.bottomAnchor.constraint(equalTo: backupButtons.topAnchor, constant: -10),
+            backupButtons.leadingAnchor.constraint(equalTo: options.leadingAnchor),
+            backupButtons.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -margin),
         ])
         view = container
     }
