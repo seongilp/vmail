@@ -36,6 +36,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         outlineView.floatsGroupRows = false
         outlineView.dataSource = self
         outlineView.delegate = self
+        outlineView.target = self
+        outlineView.doubleAction = #selector(toggleClickedRow)
         outlineView.setAccessibilityLabel("사서함")
 
         let scroll = NSScrollView()
@@ -71,6 +73,17 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         center.addObserver(self, selector: #selector(syncSelection), name: MailStore.selectionDidChange, object: store)
         center.addObserver(self, selector: #selector(unreadChanged), name: MailStore.unreadDidChange, object: store)
         reload()
+    }
+
+    /// 더블클릭: 하위 항목이 있는 줄(계정·폴더)을 접거나 펼친다.
+    @objc private func toggleClickedRow() {
+        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? SidebarNode,
+              !node.children.isEmpty else { return }
+        if outlineView.isItemExpanded(node) {
+            outlineView.animator().collapseItem(node)
+        } else {
+            outlineView.animator().expandItem(node)
+        }
     }
 
     // MARK: - 갱신
