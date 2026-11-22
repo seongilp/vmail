@@ -70,6 +70,9 @@ final class CodingTests: XCTestCase {
         XCTAssertNil(AppPassword.normalize("hello world"))
         XCTAssertNil(AppPassword.normalize("abcd efgh ijkl mno1"))
         XCTAssertNil(AppPassword.normalize("ABCD EFGH IJKL MNOP"))
+        XCTAssertEqual(AppPassword.normalize("ABCDEFGHIJKL\n"), "ABCDEFGHIJKL")
+        XCTAssertNil(AppPassword.normalize("SHORT"))
+        XCTAssertNil(AppPassword.normalize("Hello12345678"))
         XCTAssertNil(AppPassword.normalize(""))
     }
 

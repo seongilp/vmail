@@ -53,11 +53,17 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
         "icloud.com": "https://account.apple.com/account/manage",
         "me.com": "https://account.apple.com/account/manage",
         "mac.com": "https://account.apple.com/account/manage",
+        "naver.com": "https://nid.naver.com/user2/help/myInfoV2?m=viewSecurity&lang=ko_KR",
+    ]
+
+    /// 서비스별 발급 안내 (없으면 공통 문구)
+    private static let appPasswordGuides: [String: String] = [
+        "naver.com": "네이버 보안설정에서 2단계 인증 ‘관리’ → ‘애플리케이션 비밀번호 관리’로 가서 비밀번호를 생성해 복사하세요. 복사하면 자동으로 로그인합니다. 네이버 메일 환경설정의 IMAP/SMTP도 ‘사용함’이어야 합니다.",
     ]
     /// 사용자가 서버 칸을 직접 고쳤으면 자동 채움을 멈춘다.
     private var serverEdited = false
 
-    private static let hint = "Gmail · iCloud는 주소를 입력하고 ‘앱 비밀번호 만들기’를 누르면 복사만으로 로그인됩니다. 다른 메일 앱에서 쓰던 계정은 ‘키체인에서 가져오기’로 불러올 수 있습니다. 비밀번호는 이 Mac의 키체인에만 저장됩니다."
+    private static let hint = "Gmail · iCloud · 네이버는 주소를 입력하고 ‘앱 비밀번호 만들기’를 누르면 복사만으로 로그인됩니다. 다른 메일 앱에서 쓰던 계정은 ‘키체인에서 가져오기’로 불러올 수 있습니다. 비밀번호는 이 Mac의 키체인에만 저장됩니다."
 
     private init(manager: AccountManager, editing: MailStore?, prefill: Account?) {
         self.manager = manager
@@ -231,7 +237,9 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     @objc private func openAppPasswordPage() {
         guard let url = appPasswordPage else { return }
         NSWorkspace.shared.open(url)
-        showMessage("브라우저에서 앱 비밀번호를 만든 뒤 복사하세요. 복사하면 자동으로 입력하고 로그인합니다. (2단계 인증이 켜져 있어야 합니다)", isError: false)
+        let domain = effectiveEmail.components(separatedBy: "@").last?.lowercased() ?? ""
+        showMessage(Self.appPasswordGuides[domain]
+            ?? "브라우저에서 앱 비밀번호를 만든 뒤 복사하세요. 복사하면 자동으로 입력하고 로그인합니다. (2단계 인증이 켜져 있어야 합니다)", isError: false)
         clipboardWatcher.start { [weak self] password in
             guard let self, self.window?.sheetParent != nil else { return }
             self.passwordField.stringValue = password

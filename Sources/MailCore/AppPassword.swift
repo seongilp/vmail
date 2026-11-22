@@ -5,6 +5,8 @@ public enum AppPassword {
     // Google: "abcd efgh ijkl mnop" (공백은 표시용) / Apple: "abcd-efgh-ijkl-mnop" (하이픈 포함)
     private static let google = try! NSRegularExpression(pattern: "^[a-z]{4} ?[a-z]{4} ?[a-z]{4} ?[a-z]{4}$")
     private static let apple = try! NSRegularExpression(pattern: "^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$")
+    // 네이버 등: 공백 없는 대문자·숫자 한 덩어리 (애플리케이션 비밀번호)
+    private static let upperToken = try! NSRegularExpression(pattern: "^[A-Z0-9]{10,20}$")
 
     /// 앱 비밀번호처럼 보이면 로그인에 쓸 형태로 돌려주고, 아니면 nil.
     public static func normalize(_ text: String) -> String? {
@@ -14,6 +16,7 @@ public enum AppPassword {
             return trimmed.replacingOccurrences(of: " ", with: "")
         }
         if apple.firstMatch(in: trimmed, range: range) != nil { return trimmed }
+        if upperToken.firstMatch(in: trimmed, range: range) != nil { return trimmed }
         return nil
     }
 }
