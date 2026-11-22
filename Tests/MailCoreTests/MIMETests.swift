@@ -138,7 +138,8 @@ final class MIMETests: XCTestCase {
                                        cc: [], bcc: [Address(name: nil, email: "secret@x.io")], subject: "s", body: "b")
         let raw = String(decoding: MessageBuilder.build(outgoing), as: UTF8.self)
         XCTAssertFalse(raw.contains("secret@x.io"))
-        XCTAssertFalse(raw.lowercased().contains("bcc"))
+        // Message-ID의 UUID에 우연히 "bcc"가 들어갈 수 있으므로 헤더 줄만 본다.
+        XCTAssertNil(MIMEEntity(Data(raw.utf8)).headers["bcc"])
     }
 
     func testAddressListParsing() {
