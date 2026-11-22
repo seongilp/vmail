@@ -30,6 +30,14 @@
   h1 span { color: var(--accent); }
   .lead { font-size: clamp(16px, 2vw, 19px); color: var(--muted); max-width: 60ch; margin: 0 auto; text-wrap: pretty; word-break: keep-all; }
   .lead.sub { margin-top: 10px; text-align: center; }
+  .lead code { font: 0.92em ui-monospace, "SF Mono", Menlo, monospace; background: var(--card); padding: 2px 6px; border-radius: 6px; }
+  .eyebrow {
+    display: block; width: fit-content; margin: 18px auto 0; padding: 4px 12px; border-radius: 999px;
+    background: var(--card); color: var(--accent); font-size: 13px; font-weight: 600;
+  }
+  .eyebrow + h1 { margin-top: 12px; }
+  .terminal { max-width: 760px; text-align: left; }
+  .terminal span { color: #7d8799; }
   .copy {
     margin: 26px auto 0; display: inline-flex; align-items: center; gap: 14px; max-width: 100%;
     padding: 12px 14px 12px 18px; border: 0; border-radius: 12px; cursor: pointer;
@@ -72,8 +80,9 @@
 <body>
   <header class="wrap">
     <img src="icon.png" alt="vmail 아이콘" width="80" height="80">
+    <p class="eyebrow">CLI와 AI 에이전트 스킬 포함</p>
     <h1>메일은 <span>가볍게.</span></h1>
-    <p class="lead">macOS를 위한 네이티브 메일 앱. 빠르고, 필요한 것만 있고, 아무것도 수집하지 않습니다.</p>
+    <p class="lead">macOS 네이티브 메일 앱. 빠르고, 아무것도 수집하지 않고, AI 에이전트도 다룹니다.</p>
     <button class="copy" id="install" type="button" data-command="brew install --cask seongilp/tap/vmail" aria-label="설치 명령 복사">
       <code>brew install --cask seongilp/tap/vmail</code>
       <span class="copy-state" aria-live="polite">복사</span>
@@ -97,6 +106,23 @@
       <div class="card"><h3>서버 검색</h3><p>입력하면 바로 거르고, Enter로 사서함 전체를 찾습니다.</p></div>
       <div class="card"><h3>한국어 메일</h3><p>EUC-KR·CP949 레거시 인코딩도 깨지지 않습니다.</p></div>
     </div>
+  </section>
+
+  <section class="wrap" id="agents">
+    <h2>터미널에서도, AI 에이전트에게도.</h2>
+    <p class="lead sub">앱과 함께 설치되는 <code>vmail</code> 명령으로 메일을 읽고, 찾고, 정리하고, 보냅니다.</p>
+    <pre class="terminal"><code>vmail list --unread                       <span># 읽지 않은 메일</span>
+vmail search "회의" --json                 <span># 서버 전체 검색, JSON 출력</span>
+vmail read 1234                           <span># 본문 읽기</span>
+vmail send --to a@example.com --subject "제목" --dry-run   <span># 보내기 전 미리보기</span>
+vmail install-skill                       <span># Claude Code · Codex 스킬 설치</span></code></pre>
+    <div class="grid">
+      <div class="card"><h3>에이전트 스킬</h3><p>한 줄로 Claude Code와 Codex에 스킬을 설치합니다. “안 읽은 메일 요약해 줘”가 바로 됩니다.</p></div>
+      <div class="card"><h3>기계가 읽는 출력</h3><p>모든 명령에 --json. 오류도 JSON, 종료 코드도 일정해서 스크립트로 엮기 쉽습니다.</p></div>
+      <div class="card"><h3>보내기 전 확인</h3><p>--dry-run으로 무엇이 나갈지 먼저 봅니다. 읽기만으로는 읽음 표시가 바뀌지 않습니다.</p></div>
+      <div class="card"><h3>같은 계정, 같은 키체인</h3><p>앱에 등록한 계정을 그대로 씁니다. 따로 로그인하거나 토큰을 만들 필요가 없습니다.</p></div>
+    </div>
+    <p class="note">에이전트에게 메일을 읽히면 그 내용은 사용 중인 AI 서비스로 전달됩니다. vmail 자체는 어디에도 보내지 않습니다.</p>
   </section>
 
   <section class="wrap" id="privacy">
