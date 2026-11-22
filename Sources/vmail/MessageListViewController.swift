@@ -7,6 +7,16 @@ protocol MessageListDelegate: AnyObject {
 
 /// Delete 키를 삭제 액션으로 바꿔 응답자 체인에 올린다.
 private final class MessageTableView: NSTableView {
+    /// 우클릭한 줄이 선택에 없으면 그 줄만 선택한 뒤 메뉴를 띄운다.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        guard row >= 0 else { return nil }
+        if !selectedRowIndexes.contains(row) {
+            selectRowIndexes([row], byExtendingSelection: false)
+        }
+        return super.menu(for: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         let deleteKeys: Set<UInt16> = [51, 117]   // delete, forward delete
         if deleteKeys.contains(event.keyCode) {
@@ -55,6 +65,7 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
         tableView.dataSource = self
         tableView.delegate = self
         tableView.setAccessibilityLabel("메시지")
+        tableView.menu = Self.contextMenu()
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -96,6 +107,19 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
         center.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
                            object: scrollView.contentView)
         reload(keepSelection: false)
+    }
+
+    /// 액션은 nil 타깃으로 보내 창 컨트롤러가 처리하고, 제목·활성 여부도 거기서 정한다.
+    private static func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "답장", action: #selector(MainWindowController.replyMessage(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "모두에게 답장", action: #selector(MainWindowController.replyAllMessage(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "읽지 않음으로 표시", action: #selector(MainWindowController.toggleRead(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "깃발 표시", action: #selector(MainWindowController.toggleFlag(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "삭제", action: #selector(MainWindowController.deleteMessage(_:)), keyEquivalent: "")
+        return menu
     }
 
     func setFilter(_ text: String) {

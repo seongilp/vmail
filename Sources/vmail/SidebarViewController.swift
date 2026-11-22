@@ -2,7 +2,7 @@ import AppKit
 import MailCore
 
 /// 계정을 최상단에 둔 사서함 트리(소스 리스트)
-final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
+final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
     private static let cellID = NSUserInterfaceItemIdentifier("mailbox")
     private static let collapsedKey = "SidebarCollapsedNodes"
 
@@ -38,6 +38,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         outlineView.delegate = self
         outlineView.target = self
         outlineView.doubleAction = #selector(toggleClickedRow)
+        let menu = NSMenu()
+        menu.delegate = self
+        outlineView.menu = menu
         outlineView.setAccessibilityLabel("사서함")
 
         let scroll = NSScrollView()
@@ -79,11 +82,99 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     @objc private func toggleClickedRow() {
         guard let node = outlineView.item(atRow: outlineView.clickedRow) as? SidebarNode,
               !node.children.isEmpty else { return }
+        toggle(node)
+    }
+
+    private func toggle(_ node: SidebarNode) {
         if outlineView.isItemExpanded(node) {
             outlineView.animator().collapseItem(node)
         } else {
             outlineView.animator().expandItem(node)
         }
+    }
+
+    // MARK: - 우클릭 메뉴
+
+    /// 우클릭한 줄의 종류에 맞춰 메뉴를 채운다.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? SidebarNode else { return }
+
+        func add(_ title: String, _ action: Selector, target: AnyObject? = nil) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = target
+            item.representedObject = node
+            menu.addItem(item)
+        }
+
+        if node.mailbox != nil || node.isAccount {
+            add("새로운 메일 가져오기", #selector(menuRefresh(_:)), target: self)
+        }
+        if let mailbox = node.mailbox {
+            add("모두 읽음으로 표시", #selector(menuMarkAllRead(_:)), target: self)
+            if mailbox.role == .trash || mailbox.role == .junk {
+                menu.addItem(.separator())
+                add("\(mailbox.displayName) 비우기…", #selector(menuEmpty(_:)), target: self)
+            }
+        }
+        if node.isAccount {
+            menu.addItem(.separator())
+            add("계정 설정…", #selector(AppDelegate.showAccountSettings(_:)))
+            add("로그아웃", #selector(AppDelegate.signOut(_:)))
+        }
+        if !node.children.isEmpty {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            add(outlineView.isItemExpanded(node) ? "접기" : "펼치기", #selector(menuToggle(_:)), target: self)
+        }
+    }
+
+    private func mailbox(for sender: NSMenuItem) -> Mailbox? {
+        guard let node = sender.representedObject as? SidebarNode else { return nil }
+        return node.isAccount ? store.mailboxes.first { $0.role == .inbox } : node.mailbox
+    }
+
+    @objc private func menuRefresh(_ sender: NSMenuItem) {
+        guard let mailbox = mailbox(for: sender) else { return }
+        store.loadMailboxes()
+        store.open(mailbox)
+    }
+
+    @objc private func menuMarkAllRead(_ sender: NSMenuItem) {
+        guard let mailbox = mailbox(for: sender) else { return }
+        store.markAllRead(in: mailbox) { [weak self] error in
+            self?.presentFailure("읽음으로 표시하지 못했습니다", error)
+        }
+    }
+
+    @objc private func menuEmpty(_ sender: NSMenuItem) {
+        guard let mailbox = mailbox(for: sender), let window = view.window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "\(mailbox.displayName)을(를) 비울까요?"
+        alert.informativeText = "이 사서함의 모든 메일이 서버에서 완전히 삭제되며 되돌릴 수 없습니다."
+        alert.addButton(withTitle: "비우기")
+        alert.addButton(withTitle: "취소")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.store.empty(mailbox) { error in
+                self?.presentFailure("사서함을 비우지 못했습니다", error)
+            }
+        }
+    }
+
+    @objc private func menuToggle(_ sender: NSMenuItem) {
+        guard let node = sender.representedObject as? SidebarNode else { return }
+        toggle(node)
+    }
+
+    private func presentFailure(_ title: String, _ error: Error) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        alert.beginSheetModal(for: window)
     }
 
     // MARK: - 갱신

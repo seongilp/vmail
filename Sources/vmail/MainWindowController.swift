@@ -188,7 +188,18 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate, NSSearc
         switch item.action {
         case #selector(replyMessage(_:)), #selector(replyAllMessage(_:)):
             return detail.current != nil
-        case #selector(deleteMessage(_:)), #selector(toggleRead(_:)), #selector(toggleFlag(_:)):
+        case #selector(toggleRead(_:)):
+            let targets = list.selectedEnvelopes
+            // 지금 누르면 일어날 일을 메뉴 제목으로 보여준다.
+            (item as? NSMenuItem)?.title = targets.contains { !$0.isSeen } || targets.isEmpty
+                ? "읽음으로 표시" : "읽지 않음으로 표시"
+            return !targets.isEmpty
+        case #selector(toggleFlag(_:)):
+            let targets = list.selectedEnvelopes
+            (item as? NSMenuItem)?.title = targets.contains { !$0.isFlagged } || targets.isEmpty
+                ? "깃발 표시" : "깃발 지우기"
+            return !targets.isEmpty
+        case #selector(deleteMessage(_:)):
             return !list.selectedEnvelopes.isEmpty
         case #selector(refreshMailbox(_:)):
             return store.account != nil

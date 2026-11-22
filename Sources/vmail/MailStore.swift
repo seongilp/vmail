@@ -289,6 +289,51 @@ final class MailStore {
         }
     }
 
+    /// 사서함의 모든 메일을 읽음으로 표시한다.
+    func markAllRead(in mailbox: Mailbox, failure: @escaping (Error) -> Void) {
+        guard let session else { return }
+        update(mailbox) { state in
+            state.envelopes = state.envelopes.map { $0.settingFlag("\\Seen", true) }
+        }
+        let path = mailbox.path
+        session.perform({ client in
+            guard try client.select(path).exists > 0 else { return }
+            try client.storeAll(flag: "\\Seen")
+        }) { [weak self] result in
+            guard let self, self.session === session else { return }
+            if case .failure(let error) = result { failure(error) }
+            self.reload(mailbox)
+            self.refreshUnread()
+        }
+    }
+
+    /// 사서함의 모든 메일을 완전히 삭제한다. (휴지통·스팸 비우기)
+    func empty(_ mailbox: Mailbox, failure: @escaping (Error) -> Void) {
+        guard let session else { return }
+        update(mailbox) { state in
+            state.envelopes = []
+            state.exists = 0
+        }
+        let path = mailbox.path
+        session.perform({ client in
+            guard try client.select(path).exists > 0 else { return }
+            try client.expungeAll()
+        }) { [weak self] result in
+            guard let self, self.session === session else { return }
+            if case .failure(let error) = result { failure(error) }
+            self.reload(mailbox)
+        }
+    }
+
+    /// 특정 사서함을 열고 새로 가져온다.
+    func open(_ mailbox: Mailbox) {
+        if selectedMailbox == mailbox { refresh() } else { select(mailbox) }
+    }
+
+    private func reload(_ mailbox: Mailbox) {
+        load(mailbox, count: max(Self.pageSize, state(for: mailbox).envelopes.count))
+    }
+
     // MARK: - 보내기
 
     func send(_ message: OutgoingMessage, completion: @escaping (Error?) -> Void) {

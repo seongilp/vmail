@@ -134,6 +134,17 @@ public final class IMAPClient {
         }
     }
 
+    /// 선택된 사서함의 모든 메시지에 플래그를 더한다. (빈 사서함이면 호출하지 말 것)
+    public func storeAll(flag: String) throws {
+        try run("STORE 1:* +FLAGS.SILENT (\(flag))")
+    }
+
+    /// 선택된 사서함의 모든 메시지를 완전히 삭제한다.
+    public func expungeAll() throws {
+        try storeAll(flag: "\\Deleted")
+        try run("EXPUNGE")
+    }
+
     public func append(to path: String, message: Data, flags: [String] = ["\\Seen"]) throws {
         try run("APPEND \(Self.quote(path)) (\(flags.joined(separator: " "))) {\(message.count)}", literal: message)
     }
