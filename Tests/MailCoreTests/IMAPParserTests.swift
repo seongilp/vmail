@@ -58,6 +58,19 @@ final class IMAPParserTests: XCTestCase {
         XCTAssertFalse(Mailbox(path: "[Gmail]", name: "[Gmail]", delimiter: "/", attributes: ["\\Noselect"]).isSelectable)
     }
 
+    func testDuplicateRolesKeepAttributeConfirmedMailbox() {
+        let list = [
+            Mailbox(path: "Drafts", name: "Drafts", delimiter: "/", attributes: []),
+            Mailbox(path: "[Gmail]/Drafts", name: "[Gmail]/Drafts", delimiter: "/", attributes: ["\\Drafts"]),
+            Mailbox(path: "Sent", name: "Sent", delimiter: "/", attributes: []),
+            Mailbox(path: "Sent Messages", name: "Sent Messages", delimiter: "/", attributes: []),
+            Mailbox(path: "[Gmail]/Important", name: "[Gmail]/Important", delimiter: "/", attributes: ["\\Important"]),
+        ]
+        let resolved = Mailbox.resolvingDuplicateRoles(list)
+        XCTAssertEqual(resolved.map(\.role), [.other, .drafts, .sent, .other, .important])
+        XCTAssertEqual(resolved.map(\.path), list.map(\.path))
+    }
+
     func testParsesEnvelopeFromFetchLine() throws {
         let line = Data((#"* 3 FETCH (UID 101 FLAGS (\Seen) INTERNALDATE "17-Nov-2026 09:30:00 +0900" RFC822.SIZE 2048 "#
             + #"ENVELOPE ("Tue, 17 Nov 2026 09:30:00 +0900" "=?UTF-8?B?7JWI64WV?=" (("=?UTF-8?B?7ZmN6ri464+Z?=" NIL "hong" "example.com")) "#

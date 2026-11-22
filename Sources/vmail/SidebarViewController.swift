@@ -1,47 +1,18 @@
 import AppKit
 import MailCore
 
-extension Mailbox {
-    /// 사이드바에 보여줄 이름
-    var displayName: String {
-        switch role {
-        case .inbox: return "받은편지함"
-        case .flagged: return "별표편지함"
-        case .drafts: return "임시보관함"
-        case .sent: return "보낸편지함"
-        case .all: return "전체보관함"
-        case .junk: return "스팸편지함"
-        case .trash: return "휴지통"
-        case .other: return leafName
-        }
-    }
-
-    var symbolName: String {
-        switch role {
-        case .inbox: return "tray"
-        case .flagged: return "star"
-        case .drafts: return "doc"
-        case .sent: return "paperplane"
-        case .all: return "archivebox"
-        case .junk: return "xmark.bin"
-        case .trash: return "trash"
-        case .other: return "folder"
-        }
-    }
-
-    /// 사용자 폴더의 중첩 깊이 (역할이 있는 사서함은 항상 최상위로 보여준다)
-    var indentLevel: Int { role == .other ? max(0, components.count - 1) : 0 }
-}
-
-/// 사서함 목록(소스 리스트)
-final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+/// 계정을 최상단에 둔 사서함 트리(소스 리스트)
+final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
     private static let cellID = NSUserInterfaceItemIdentifier("mailbox")
-    private static let indentWidth: CGFloat = 14
+    private static let collapsedKey = "SidebarCollapsedNodes"
 
     private let store: MailStore
-    private let tableView = NSTableView()
+    private let outlineView = NSOutlineView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
+    private var root: SidebarNode?
     private var isReloading = false
+    /// 사용자가 접어 둔 줄 — 새로 고쳐도, 다시 실행해도 유지한다.
+    private var collapsed = Set(UserDefaults.standard.stringArray(forKey: SidebarViewController.collapsedKey) ?? [])
 
     init(store: MailStore) {
         self.store = store
@@ -54,16 +25,19 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     override func loadView() {
         let column = NSTableColumn(identifier: Self.cellID)
         column.resizingMask = .autoresizingMask
-        tableView.addTableColumn(column)
-        tableView.headerView = nil
-        tableView.style = .sourceList
-        tableView.rowHeight = 28
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.setAccessibilityLabel("사서함")
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.headerView = nil
+        outlineView.style = .sourceList
+        outlineView.rowHeight = 28
+        outlineView.indentationPerLevel = 14
+        outlineView.floatsGroupRows = false
+        outlineView.dataSource = self
+        outlineView.delegate = self
+        outlineView.setAccessibilityLabel("사서함")
 
         let scroll = NSScrollView()
-        scroll.documentView = tableView
+        scroll.documentView = outlineView
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -92,20 +66,24 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         super.viewDidLoad()
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(reload), name: MailStore.mailboxesDidChange, object: store)
-        center.addObserver(self, selector: #selector(reload), name: MailStore.selectionDidChange, object: store)
+        center.addObserver(self, selector: #selector(syncSelection), name: MailStore.selectionDidChange, object: store)
+        center.addObserver(self, selector: #selector(unreadChanged), name: MailStore.unreadDidChange, object: store)
         reload()
     }
 
+    // MARK: - 갱신
+
     @objc private func reload() {
         isReloading = true
-        tableView.reloadData()
-        if let selected = store.selectedMailbox,
-           let row = store.mailboxes.firstIndex(where: { $0.path == selected.path }) {
-            tableView.selectRowIndexes([row], byExtendingSelection: false)
+        if let account = store.account, !store.mailboxes.isEmpty {
+            root = SidebarTree.build(account: account, mailboxes: store.mailboxes)
         } else {
-            tableView.deselectAll(nil)
+            root = nil
         }
+        outlineView.reloadData()
+        if let root { expand(root) }
         isReloading = false
+        syncSelection()
 
         if store.account == nil {
             statusLabel.stringValue = "계정이 없습니다"
@@ -117,55 +95,135 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         statusLabel.isHidden = statusLabel.stringValue.isEmpty
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        store.mailboxes.count
+    /// 사용자가 접어 둔 줄만 빼고 펼친다.
+    private func expand(_ node: SidebarNode) {
+        guard !node.children.isEmpty, !collapsed.contains(node.key) else { return }
+        outlineView.expandItem(node)
+        node.children.forEach(expand)
     }
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let cell = tableView.makeView(withIdentifier: Self.cellID, owner: nil) as? MailboxCellView ?? MailboxCellView()
+    @objc private func syncSelection() {
+        isReloading = true
+        defer { isReloading = false }
+        guard let root, let selected = store.selectedMailbox, let node = find(selected.path, in: root) else {
+            outlineView.deselectAll(nil)
+            return
+        }
+        let row = outlineView.row(forItem: node)   // 접힌 부모 안에 있으면 -1
+        if row >= 0 {
+            outlineView.selectRowIndexes([row], byExtendingSelection: false)
+        } else {
+            outlineView.deselectAll(nil)
+        }
+    }
+
+    @objc private func unreadChanged() {
+        guard let root, let inbox = root.children.first(where: { $0.mailbox?.role == .inbox }) else { return }
+        let row = outlineView.row(forItem: inbox)
+        if row >= 0 { outlineView.reloadData(forRowIndexes: [row], columnIndexes: [0]) }
+    }
+
+    private func find(_ path: String, in node: SidebarNode) -> SidebarNode? {
+        if node.mailbox?.path == path { return node }
+        for child in node.children {
+            if let found = find(path, in: child) { return found }
+        }
+        return nil
+    }
+
+    // MARK: - NSOutlineViewDataSource
+
+    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        guard let node = item as? SidebarNode else { return root == nil ? 0 : 1 }
+        return node.children.count
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        guard let node = item as? SidebarNode else { return root as Any }
+        return node.children[index]
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        !((item as? SidebarNode)?.children.isEmpty ?? true)
+    }
+
+    // MARK: - NSOutlineViewDelegate
+
+    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+        guard let node = item as? SidebarNode else { return nil }
+        let cell = outlineView.makeView(withIdentifier: Self.cellID, owner: nil) as? MailboxCellView ?? MailboxCellView()
         cell.identifier = Self.cellID
-        cell.configure(store.mailboxes[row], indentWidth: Self.indentWidth)
+        let badge = node.mailbox?.role == .inbox && store.inboxUnread > 0 ? "\(store.inboxUnread)" : ""
+        cell.configure(node, badge: badge)
         return cell
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !isReloading, tableView.selectedRow >= 0 else { return }
-        store.select(store.mailboxes[tableView.selectedRow])
+    func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
+        (item as? SidebarNode)?.mailbox != nil
+    }
+
+    func outlineViewSelectionDidChange(_ notification: Notification) {
+        guard !isReloading, let node = outlineView.item(atRow: outlineView.selectedRow) as? SidebarNode,
+              let mailbox = node.mailbox else { return }
+        store.select(mailbox)
+    }
+
+    func outlineViewItemDidCollapse(_ notification: Notification) {
+        rememberCollapsed(notification, isCollapsed: true)
+    }
+
+    func outlineViewItemDidExpand(_ notification: Notification) {
+        rememberCollapsed(notification, isCollapsed: false)
+        syncSelection()   // 펼친 줄 안에 선택된 사서함이 있으면 다시 강조한다
+    }
+
+    private func rememberCollapsed(_ notification: Notification, isCollapsed: Bool) {
+        guard !isReloading, let node = notification.userInfo?["NSObject"] as? SidebarNode else { return }
+        collapsed = isCollapsed ? collapsed.union([node.key]) : collapsed.subtracting([node.key])
+        UserDefaults.standard.set(Array(collapsed), forKey: Self.collapsedKey)
     }
 }
 
 private final class MailboxCellView: NSTableCellView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
-    private var leading: NSLayoutConstraint?
+    private let badgeLabel = NSTextField(labelWithString: "")
 
     init() {
         super.init(frame: .zero)
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
-        addSubview(icon)
-        addSubview(label)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        badgeLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        badgeLabel.textColor = .secondaryLabelColor
+        badgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        badgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        for sub in [icon, label, badgeLabel] {
+            sub.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(sub)
+        }
         imageView = icon
         textField = label
-        let leading = icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4)
-        self.leading = leading
         NSLayoutConstraint.activate([
-            leading,
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 18),
             label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -6),
+            badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            badgeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) 미지원") }
 
-    func configure(_ mailbox: Mailbox, indentWidth: CGFloat) {
-        icon.image = NSImage(systemSymbolName: mailbox.symbolName, accessibilityDescription: nil)
-        label.stringValue = mailbox.displayName
-        leading?.constant = 4 + CGFloat(mailbox.indentLevel) * indentWidth
+    func configure(_ node: SidebarNode, badge: String) {
+        icon.image = NSImage(systemSymbolName: node.symbolName, accessibilityDescription: nil)
+        label.stringValue = node.title
+        label.font = .systemFont(ofSize: 13, weight: node.isAccount ? .semibold : .regular)
+        label.textColor = node.mailbox == nil && !node.isAccount ? .secondaryLabelColor : .labelColor
+        badgeLabel.stringValue = badge
+        setAccessibilityLabel(badge.isEmpty ? node.title : "\(node.title), 읽지 않은 메일 \(badge)개")
     }
 }

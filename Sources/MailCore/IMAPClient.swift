@@ -50,7 +50,7 @@ public final class IMAPClient {
 
     public func listMailboxes() throws -> [Mailbox] {
         let lines = try run("LIST \"\" \"*\"")
-        return lines.compactMap(Self.parseListLine).filter(\.isSelectable)
+        return Mailbox.resolvingDuplicateRoles(lines.compactMap(Self.parseListLine).filter(\.isSelectable))
     }
 
     @discardableResult

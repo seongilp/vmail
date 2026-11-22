@@ -23,7 +23,7 @@ public struct Address: Codable, Hashable, Sendable {
 }
 
 public enum MailboxRole: String, Codable, Sendable, CaseIterable {
-    case inbox, flagged, drafts, sent, all, junk, trash, other
+    case inbox, flagged, important, drafts, sent, all, junk, trash, other
 }
 
 public struct Mailbox: Codable, Hashable, Sendable {
@@ -33,15 +33,20 @@ public struct Mailbox: Codable, Hashable, Sendable {
     public let name: String
     public let delimiter: String?
     public let attributes: [String]
+    public let role: MailboxRole
 
-    public init(path: String, name: String, delimiter: String?, attributes: [String]) {
+    /// role을 생략하면 속성과 이름으로 추정한다.
+    public init(path: String, name: String, delimiter: String?, attributes: [String], role: MailboxRole? = nil) {
         self.path = path
         self.name = name
         self.delimiter = delimiter
         self.attributes = attributes
+        self.role = role ?? Self.attributeRole(path: path, attributes: attributes)
+            ?? Self.nameRole(Self.components(name, delimiter).last ?? name)
     }
 
-    public var role: MailboxRole {
+    /// 서버가 special-use 속성으로 알려 준 역할 (가장 믿을 수 있다)
+    static func attributeRole(path: String, attributes: [String]) -> MailboxRole? {
         if path.uppercased() == "INBOX" { return .inbox }
         let attrs = Set(attributes.map { $0.lowercased() })
         if attrs.contains("\\sent") { return .sent }
@@ -50,7 +55,13 @@ public struct Mailbox: Codable, Hashable, Sendable {
         if attrs.contains("\\junk") { return .junk }
         if attrs.contains("\\all") || attrs.contains("\\archive") { return .all }
         if attrs.contains("\\flagged") { return .flagged }
-        switch leafName.lowercased() {
+        if attrs.contains("\\important") { return .important }
+        return nil
+    }
+
+    /// 속성이 없는 서버를 위한 이름 기반 추정
+    static func nameRole(_ leaf: String) -> MailboxRole {
+        switch leaf.lowercased() {
         case "sent", "sent messages", "sent items", "sent mail", "보낸편지함", "보낸메일함": return .sent
         case "trash", "deleted messages", "deleted items", "휴지통": return .trash
         case "drafts", "draft", "임시보관함": return .drafts
@@ -59,10 +70,34 @@ public struct Mailbox: Codable, Hashable, Sendable {
         }
     }
 
-    public var components: [String] {
+    /// 같은 역할이 여럿이면 하나만 남기고 나머지는 일반 폴더로 돌린다.
+    /// 속성으로 확인된 사서함이 우선하고, 없으면 이름으로 추정한 첫 번째를 쓴다.
+    public static func resolvingDuplicateRoles(_ mailboxes: [Mailbox]) -> [Mailbox] {
+        var winners: [MailboxRole: String] = [:]
+        for mailbox in mailboxes where mailbox.role != .other {
+            let confirmed = attributeRole(path: mailbox.path, attributes: mailbox.attributes) == mailbox.role
+            if winners[mailbox.role] == nil || (confirmed && !isConfirmed(winners[mailbox.role], in: mailboxes)) {
+                winners[mailbox.role] = mailbox.path
+            }
+        }
+        return mailboxes.map { mailbox in
+            guard mailbox.role != .other, winners[mailbox.role] != mailbox.path else { return mailbox }
+            return Mailbox(path: mailbox.path, name: mailbox.name, delimiter: mailbox.delimiter,
+                           attributes: mailbox.attributes, role: .other)
+        }
+    }
+
+    private static func isConfirmed(_ path: String?, in mailboxes: [Mailbox]) -> Bool {
+        guard let mailbox = mailboxes.first(where: { $0.path == path }) else { return false }
+        return attributeRole(path: mailbox.path, attributes: mailbox.attributes) == mailbox.role
+    }
+
+    private static func components(_ name: String, _ delimiter: String?) -> [String] {
         guard let delimiter, !delimiter.isEmpty else { return [name] }
         return name.components(separatedBy: delimiter)
     }
+
+    public var components: [String] { Self.components(name, delimiter) }
 
     public var leafName: String { components.last ?? name }
 
