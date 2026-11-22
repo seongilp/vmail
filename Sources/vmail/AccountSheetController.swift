@@ -48,6 +48,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
             nameField.stringValue = NSFullUserName()
         }
         window.initialFirstResponder = emailField
+        connectKeyViewLoop()
         loadImportableAccounts()
     }
 
@@ -142,6 +143,15 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
         ])
         window.contentView = content
         window.setContentSize(content.fittingSize)   // 내용에 딱 맞게 — 남는 높이가 그리드 행 사이로 퍼지지 않도록
+    }
+
+    /// initialFirstResponder를 지정하면 AppKit이 Tab 순서를 자동 계산하지 않으므로 직접 잇는다.
+    private func connectKeyViewLoop() {
+        let order: [NSView] = [nameField, emailField, passwordField, usernameField,
+                               imapHostField, imapPortField, smtpHostField, smtpPortField]
+        for (index, view) in order.enumerated() {
+            view.nextKeyView = order[(index + 1) % order.count]
+        }
     }
 
     private func fill(_ account: Account) {
