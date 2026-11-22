@@ -85,12 +85,13 @@ extension MailStore {
     // MARK: - 검색 / 원문
 
     /// 서버에서 사서함 전체를 검색한다. 최신 searchLimit 건까지.
-    func search(_ text: String, in mailbox: Mailbox, completion: @escaping (Result<[Envelope], Error>) -> Void) {
+    func search(_ text: String, field: SearchField = .text, in mailbox: Mailbox,
+                completion: @escaping (Result<[Envelope], Error>) -> Void) {
         guard let session else { return }
         let path = mailbox.path
         session.perform({ client -> [Envelope] in
             try client.ensureSelected(path)
-            let uids = try client.search(text: text)
+            let uids = try client.search(text: text, field: field)
             return try client.fetchEnvelopes(uids: Array(uids.prefix(Self.searchLimit)))
         }) { [weak self] result in
             guard let self, self.session === session else { return }

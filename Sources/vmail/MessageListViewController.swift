@@ -143,7 +143,7 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     }
 
     /// Enter: 서버에서 사서함 전체를 검색한다.
-    func submitSearch(_ text: String) {
+    func submitSearch(_ text: String, field: SearchField = .text) {
         let query = text.trimmingCharacters(in: .whitespaces)
         guard let store, let mailbox = store.selectedMailbox, !query.isEmpty else {
             clearSearch()
@@ -156,7 +156,7 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
         searchError = nil
         isSearching = true
         reload(keepSelection: false)
-        store.search(query, in: mailbox) { [weak self] result in
+        store.search(query, field: field, in: mailbox) { [weak self] result in
             guard let self, self.searchQuery == query, self.store === store, store.selectedMailbox == mailbox else { return }
             self.isSearching = false
             switch result {

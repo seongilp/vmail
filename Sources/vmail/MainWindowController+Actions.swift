@@ -107,6 +107,26 @@ extension MainWindowController {
         }
     }
 
+    /// 선택한 메일의 보낸 사람이 보낸 메일만 서버에서 찾아 보여준다. 검색 칸을 비우면 원래 목록으로 돌아간다.
+    @objc func showMessagesFromSender(_ sender: Any?) {
+        guard let address = list.selectedEnvelopes.first?.from.first else { return }
+        searchItem?.searchField.stringValue = address.email
+        list.submitSearch(address.email, field: .from)
+    }
+
+    /// 선택한 메일의 보낸 사람을 조건으로 채운 규칙 시트를 연다.
+    @objc func createRuleFromMessage(_ sender: Any?) {
+        guard let window, ruleSheet == nil, let store, let address = list.selectedEnvelopes.first?.from.first else { return }
+        let draft = MailRule(name: "\(address.displayName) 정리", accountEmail: store.account.email,
+                             field: .from, keyword: address.email, action: .markRead)
+        let controller = RuleSheetController(manager: manager, rule: draft, isNew: true) { saved in
+            Preferences.rules = Preferences.rules + [saved]
+        }
+        guard let sheet = controller.window else { return }
+        ruleSheet = controller
+        window.beginSheet(sheet) { [weak self] _ in self?.ruleSheet = nil }
+    }
+
     @objc func toggleRead(_ sender: Any?) {
         toggle("\\Seen", failureTitle: "읽음 상태를 바꾸지 못했습니다")
     }
@@ -169,6 +189,8 @@ extension MainWindowController {
         case #selector(toggleFlag(_:)):
             menuItem?.title = targets.contains { !$0.isFlagged } || targets.isEmpty ? "깃발 표시" : "깃발 지우기"
             return !targets.isEmpty
+        case #selector(showMessagesFromSender(_:)), #selector(createRuleFromMessage(_:)):
+            return targets.count == 1 && targets[0].from.first != nil
         case #selector(deleteMessage(_:)), #selector(moveToMailbox(_:)):
             return !targets.isEmpty
         case #selector(archiveMessage(_:)):

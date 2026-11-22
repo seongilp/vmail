@@ -28,14 +28,15 @@ final class RuleSheetController: NSWindowController {
     private let messageLabel = NSTextField(labelWithString: "")
     private var mailboxes: [Mailbox] = []
 
-    init(manager: AccountManager, rule: MailRule?, onSave: @escaping (MailRule) -> Void) {
+    /// isNew: rule이 미리 채워 둔 초안일 때 (메일에서 규칙 만들기)
+    init(manager: AccountManager, rule: MailRule?, isNew: Bool = false, onSave: @escaping (MailRule) -> Void) {
         self.manager = manager
         original = rule
         self.onSave = onSave
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
         super.init(window: window)
-        buildContent(in: window, title: rule == nil ? "새 규칙" : "규칙 수정")
+        buildContent(in: window, title: rule == nil || isNew ? "새 규칙" : "규칙 수정")
         populate(rule)
     }
 

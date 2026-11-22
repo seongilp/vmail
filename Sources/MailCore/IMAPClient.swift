@@ -1,5 +1,11 @@
 import Foundation
 
+/// 서버 검색 대상
+public enum SearchField: String, Sendable {
+    case text = "TEXT"   // 헤더와 본문 전체
+    case from = "FROM"   // 보낸 사람
+}
+
 /// 동기식 IMAP4rev1 클라이언트. 백그라운드 큐 하나에서만 사용한다.
 public final class IMAPClient {
     private let connection: LineConnection
@@ -110,9 +116,9 @@ public final class IMAPClient {
     }
 
     /// 서버에서 본문·헤더 전체를 검색한다. UID를 최신순으로 돌려준다.
-    public func search(text: String) throws -> [UInt32] {
+    public func search(text: String, field: SearchField = .text) throws -> [UInt32] {
         // 한글 등 8비트 문자는 리터럴로 보내야 한다.
-        let lines = try run("UID SEARCH CHARSET UTF-8 TEXT {\(text.utf8.count)}", literal: Data(text.utf8))
+        let lines = try run("UID SEARCH CHARSET UTF-8 \(field.rawValue) {\(text.utf8.count)}", literal: Data(text.utf8))
         var uids: [UInt32] = []
         for line in lines {
             let words = self.text(line).split(separator: " ")

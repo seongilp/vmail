@@ -52,6 +52,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate, NSSearc
     let detail = MessageDetailViewController()
     var searchItem: NSSearchToolbarItem?
     var composeControllers: [ComposeWindowController] = []
+    var ruleSheet: RuleSheetController?
 
     var store: MailStore? { manager.current }
 
@@ -113,6 +114,9 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate, NSSearc
         menu.addItem(.separator())
         menu.addItem(withTitle: "읽지 않음으로 표시", action: #selector(toggleRead(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "깃발 표시", action: #selector(toggleFlag(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "이 발신자의 메일만 보기", action: #selector(showMessagesFromSender(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "이 메일로 규칙 만들기…", action: #selector(createRuleFromMessage(_:)), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "보관", action: #selector(archiveMessage(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "스팸으로 이동", action: #selector(junkMessage(_:)), keyEquivalent: "")
