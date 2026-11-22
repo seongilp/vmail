@@ -2,13 +2,14 @@ import AppKit
 
 /// 메뉴바를 코드로 구성한다. 메일 관련 액션은 nil 타깃으로 보내 응답자 체인(창 컨트롤러)이 처리한다.
 enum MainMenu {
-    static func build() -> NSMenu {
+    static func build(mailboxMenu: MailboxMenu) -> NSMenu {
         let main = NSMenu()
         main.addItem(submenu(appMenu()))
         main.addItem(submenu(fileMenu()))
         main.addItem(submenu(editMenu()))
-        main.addItem(submenu(mailboxMenu()))
-        main.addItem(submenu(messageMenu()))
+        main.addItem(submenu(viewMenu()))
+        main.addItem(submenu(mailboxesMenu()))
+        main.addItem(submenu(messageMenu(mailboxMenu)))
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
@@ -32,8 +33,9 @@ enum MainMenu {
         let menu = NSMenu()
         menu.addItem(item("vmail에 관하여", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
         menu.addItem(.separator())
-        menu.addItem(item("계정 설정…", #selector(AppDelegate.showAccountSettings(_:)), ","))
-        menu.addItem(item("로그아웃", #selector(AppDelegate.signOut(_:))))
+        menu.addItem(item("설정…", #selector(AppDelegate.showSettings(_:)), ","))
+        menu.addItem(item("계정…", #selector(AppDelegate.showAccounts(_:))))
+        menu.addItem(item("계정 추가…", #selector(AppDelegate.addAccount(_:))))
         menu.addItem(.separator())
         menu.addItem(item("vmail 가리기", #selector(NSApplication.hide(_:)), "h"))
         menu.addItem(item("기타 가리기", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]))
@@ -46,7 +48,12 @@ enum MainMenu {
         let menu = NSMenu(title: "파일")
         menu.addItem(item("새로운 메일", #selector(MainWindowController.composeMessage(_:)), "n"))
         menu.addItem(.separator())
+        menu.addItem(item("임시 저장", #selector(ComposeWindowController.saveDraft(_:)), "s"))
+        menu.addItem(item("원본 저장…", #selector(MainWindowController.saveMessageSource(_:)), "s", [.command, .shift]))
+        menu.addItem(.separator())
         menu.addItem(item("닫기", #selector(NSWindow.performClose(_:)), "w"))
+        menu.addItem(.separator())
+        menu.addItem(item("프린트…", #selector(MainWindowController.printMessage(_:)), "p"))
         return menu
     }
 
@@ -64,25 +71,43 @@ enum MainMenu {
         return menu
     }
 
-    private static func mailboxMenu() -> NSMenu {
+    private static func viewMenu() -> NSMenu {
+        let menu = NSMenu(title: "보기")
+        menu.addItem(item("읽지 않은 메일만 보기", #selector(MainWindowController.toggleUnreadOnly(_:)), "u", [.command, .option]))
+        menu.addItem(.separator())
+        menu.addItem(item("확대", #selector(MainWindowController.zoomIn(_:)), "+"))
+        menu.addItem(item("축소", #selector(MainWindowController.zoomOut(_:)), "-"))
+        menu.addItem(item("실제 크기", #selector(MainWindowController.zoomReset(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("사이드바 보기/가리기", #selector(NSSplitViewController.toggleSidebar(_:)), "s", [.command, .control]))
+        return menu
+    }
+
+    private static func mailboxesMenu() -> NSMenu {
         let menu = NSMenu(title: "메일상자")
         menu.addItem(item("새로운 메일 가져오기", #selector(MainWindowController.refreshMailbox(_:)), "r"))
         return menu
     }
 
-    private static func messageMenu() -> NSMenu {
+    private static func messageMenu(_ mailboxMenu: MailboxMenu) -> NSMenu {
         let menu = NSMenu(title: "메시지")
         menu.addItem(item("답장", #selector(MainWindowController.replyMessage(_:)), "r", [.command, .shift]))
         menu.addItem(item("모두에게 답장", #selector(MainWindowController.replyAllMessage(_:)), "r", [.command, .option]))
+        menu.addItem(item("전달", #selector(MainWindowController.forwardMessage(_:)), "f", [.command, .shift]))
         menu.addItem(.separator())
         menu.addItem(item("읽음/읽지 않음으로 표시", #selector(MainWindowController.toggleRead(_:)), "u", [.command, .shift]))
         menu.addItem(item("깃발 표시 전환", #selector(MainWindowController.toggleFlag(_:)), "l", [.command, .shift]))
         menu.addItem(.separator())
+        menu.addItem(item("보관", #selector(MainWindowController.archiveMessage(_:)), "a", [.command, .control]))
+        menu.addItem(item("스팸으로 이동", #selector(MainWindowController.junkMessage(_:)), "j", [.command, .shift]))
+        let move = item("이동", nil)
+        move.submenu = mailboxMenu.makeSubmenu()
+        menu.addItem(move)
+        menu.addItem(.separator())
         menu.addItem(item("보내기", #selector(ComposeWindowController.sendMessage(_:)), "d", [.command, .shift]))
         menu.addItem(item("파일 첨부…", #selector(ComposeWindowController.attachFiles(_:)), "a", [.command, .shift]))
         menu.addItem(.separator())
-        let delete = item("삭제", #selector(MainWindowController.deleteMessage(_:)), "\u{8}")
-        menu.addItem(delete)
+        menu.addItem(item("삭제", #selector(MainWindowController.deleteMessage(_:)), "\u{8}"))
         return menu
     }
 

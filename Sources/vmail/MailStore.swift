@@ -12,9 +12,23 @@ struct MailboxListState {
     var canLoadMore: Bool { hasLoaded && envelopes.count < exists }
 }
 
+/// 목록에 가해진 변경 (플래그 변경 / 삭제·이동)
+enum MessageMutation {
+    case flag(String, Bool, Set<UInt32>)
+    case removed(Set<UInt32>)
+
+    func apply(to envelopes: [Envelope]) -> [Envelope] {
+        switch self {
+        case .flag(let flag, let on, let uids):
+            return envelopes.map { uids.contains($0.uid) ? $0.settingFlag(flag, on) : $0 }
+        case .removed(let uids):
+            return envelopes.filter { !uids.contains($0.uid) }
+        }
+    }
+}
+
 /// 앱의 모델. 메인 스레드에서만 접근하고, 네트워크는 MailSession의 백그라운드 큐가 맡는다.
 final class MailStore {
-    static let accountDidChange = Notification.Name("MailStore.accountDidChange")
     static let mailboxesDidChange = Notification.Name("MailStore.mailboxesDidChange")
     static let messagesDidChange = Notification.Name("MailStore.messagesDidChange")   // userInfo["path"]
     static let selectionDidChange = Notification.Name("MailStore.selectionDidChange")
@@ -22,17 +36,16 @@ final class MailStore {
 
     static let pageSize = 50
     private static let refreshInterval: TimeInterval = 60
-    private static let accountKey = "account"
 
-    private(set) var account: Account?
+    let account: Account
     private(set) var mailboxes: [Mailbox] = []
     private(set) var selectedMailbox: Mailbox?
     private(set) var inboxUnread = 0
     private(set) var mailboxError: String?
 
-    private var session: MailSession?
+    private(set) var session: MailSession?
     private var cache: DiskCache?
-    private var states: [String: MailboxListState] = [:]
+    private(set) var states: [String: MailboxListState] = [:]
     private let bodies = NSCache<NSString, MessageBox>()
     private var refreshTimer: Timer?
 
@@ -41,52 +54,15 @@ final class MailStore {
         init(_ message: ParsedMessage) { self.message = message }
     }
 
-    // MARK: - 계정
+    // MARK: - 수명
 
-    func start() {
-        guard let data = UserDefaults.standard.data(forKey: Self.accountKey),
-              let account = try? JSONDecoder().decode(Account.self, from: data),
-              let password = Keychain.password(account: account.email) else { return }
-        activate(account: account, password: password)
-    }
-
-    /// 로그인 검증 후 계정을 저장하고 연결한다.
-    func signIn(account: Account, password: String, completion: @escaping (Error?) -> Void) {
-        MailSession.verify(account: account, password: password) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .failure(let error):
-                completion(error)
-            case .success:
-                if let data = try? JSONEncoder().encode(account) {
-                    UserDefaults.standard.set(data, forKey: Self.accountKey)
-                }
-                Keychain.save(password: password, account: account.email)
-                self.deactivate()
-                self.activate(account: account, password: password)
-                completion(nil)
-            }
-        }
-    }
-
-    func signOut() {
-        if let account { Keychain.delete(account: account.email) }
-        UserDefaults.standard.removeObject(forKey: Self.accountKey)
-        cache?.removeAll()
-        deactivate()
-        post(Self.accountDidChange)
-        post(Self.mailboxesDidChange)
-        post(Self.selectionDidChange)
-    }
-
-    private func activate(account: Account, password: String) {
+    /// 계정 하나를 맡는 스토어. 만들자마자 캐시를 읽어 화면을 채우고 서버에 연결한다.
+    init(account: Account, password: String) {
         self.account = account
         session = MailSession(account: account, password: password)
         let cache = DiskCache(email: account.email)
         self.cache = cache
         mailboxes = Self.sorted(cache.loadMailboxes())
-        post(Self.accountDidChange)
-        post(Self.mailboxesDidChange)
         if let inbox = mailboxes.first(where: { $0.role == .inbox }) { select(inbox) }
         loadMailboxes()
 
@@ -96,20 +72,14 @@ final class MailStore {
         refreshTimer = timer
     }
 
-    private func deactivate() {
+    /// 연결을 끊는다. removeData면 이 계정의 디스크 캐시도 지운다.
+    func shutdown(removeData: Bool) {
         refreshTimer?.invalidate()
         refreshTimer = nil
         session?.disconnect()
         session = nil
+        if removeData { cache?.removeAll() }
         cache = nil
-        account = nil
-        mailboxes = []
-        selectedMailbox = nil
-        states = [:]
-        mailboxError = nil
-        bodies.removeAllObjects()
-        inboxUnread = 0
-        post(Self.unreadDidChange)
     }
 
     // MARK: - 사서함
@@ -156,7 +126,7 @@ final class MailStore {
     /// 선택된 사서함을 새로 고친다. 지금까지 불러온 개수만큼(최소 한 페이지) 다시 가져온다.
     func refresh() {
         guard let mailbox = selectedMailbox else {
-            if account != nil, mailboxes.isEmpty { loadMailboxes() }
+            if mailboxes.isEmpty { loadMailboxes() }
             return
         }
         load(mailbox, count: max(Self.pageSize, state(for: mailbox).envelopes.count))
@@ -168,7 +138,7 @@ final class MailStore {
         load(mailbox, count: state(for: mailbox).envelopes.count + Self.pageSize)
     }
 
-    private func load(_ mailbox: Mailbox, count: Int) {
+    func load(_ mailbox: Mailbox, count: Int) {
         guard let session, !state(for: mailbox).isLoading else { return }
         update(mailbox) { $0.isLoading = true }
         let path = mailbox.path
@@ -181,6 +151,7 @@ final class MailStore {
             guard let self, self.session === session else { return }
             switch result {
             case .success(let (status, envelopes)):
+                self.notifyNewMail(in: mailbox, fresh: envelopes)
                 self.update(mailbox) {
                     $0.envelopes = envelopes
                     $0.exists = status.exists
@@ -198,7 +169,7 @@ final class MailStore {
         }
     }
 
-    private func refreshUnread() {
+    func refreshUnread() {
         guard let session, let inbox = mailboxes.first(where: { $0.role == .inbox }) else { return }
         session.perform({ try $0.unseenCount(inbox.path) }) { [weak self] result in
             guard let self, self.session === session, case .success(let count) = result else { return }
@@ -208,11 +179,14 @@ final class MailStore {
     }
 
     /// 상태를 복사해 고친 뒤 통째로 교체하고 알린다.
-    private func update(_ mailbox: Mailbox, _ change: (inout MailboxListState) -> Void) {
+    /// mutation: 검색 결과처럼 목록 밖에 있는 사본에도 같은 변경을 적용할 수 있게 알려 준다.
+    func update(_ mailbox: Mailbox, mutation: MessageMutation? = nil, _ change: (inout MailboxListState) -> Void) {
         var next = state(for: mailbox)
         change(&next)
         states[mailbox.path] = next
-        NotificationCenter.default.post(name: Self.messagesDidChange, object: self, userInfo: ["path": mailbox.path])
+        var info: [String: Any] = ["path": mailbox.path]
+        if let mutation { info["mutation"] = mutation }
+        NotificationCenter.default.post(name: Self.messagesDidChange, object: self, userInfo: info)
     }
 
     // MARK: - 본문
@@ -242,7 +216,7 @@ final class MailStore {
         let uids = envelopes.filter { $0.hasFlag(flag) != on }.map(\.uid)
         guard let session, !uids.isEmpty else { return }
         let targets = Set(uids)
-        update(mailbox) { state in
+        update(mailbox, mutation: .flag(flag, on, targets)) { state in
             state.envelopes = state.envelopes.map { targets.contains($0.uid) ? $0.settingFlag(flag, on) : $0 }
         }
         let path = mailbox.path
@@ -265,7 +239,7 @@ final class MailStore {
         let uids = envelopes.map(\.uid)
         guard let session, !uids.isEmpty else { return }
         let targets = Set(uids)
-        update(mailbox) { state in
+        update(mailbox, mutation: .removed(targets)) { state in
             state.envelopes = state.envelopes.filter { !targets.contains($0.uid) }
             state.exists = max(0, state.exists - uids.count)
         }
@@ -330,7 +304,7 @@ final class MailStore {
         if selectedMailbox == mailbox { refresh() } else { select(mailbox) }
     }
 
-    private func reload(_ mailbox: Mailbox) {
+    func reload(_ mailbox: Mailbox) {
         load(mailbox, count: max(Self.pageSize, state(for: mailbox).envelopes.count))
     }
 
@@ -352,7 +326,7 @@ final class MailStore {
 
     // MARK: - 도우미
 
-    private func post(_ name: Notification.Name) {
+    func post(_ name: Notification.Name) {
         NotificationCenter.default.post(name: name, object: self)
     }
 

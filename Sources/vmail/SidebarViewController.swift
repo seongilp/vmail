@@ -1,23 +1,25 @@
 import AppKit
 import MailCore
 
-/// 계정을 최상단에 둔 사서함 트리(소스 리스트)
+/// 계정들을 최상단에 둔 사서함 트리(소스 리스트)
 final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
+    /// 메시지 목록에서 끌어 온 메일의 UID
+    static let messageDragType = NSPasteboard.PasteboardType("com.zihado.vmail.message-uid")
     private static let cellID = NSUserInterfaceItemIdentifier("mailbox")
     private static let collapsedKey = "SidebarCollapsedNodes"
 
-    private let store: MailStore
-    private let outlineView = NSOutlineView()
+    let manager: AccountManager
+    let outlineView = NSOutlineView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
-    private var root: SidebarNode?
+    private var roots: [SidebarNode] = []
     private var isReloading = false
     /// 계정 줄을 골랐는지 — 계정 줄은 받은편지함을 보여주되 강조는 계정 줄에 남긴다.
-    private var accountRowSelected = false
+    private weak var accountRowStore: MailStore?
     /// 사용자가 접어 둔 줄 — 새로 고쳐도, 다시 실행해도 유지한다.
     private var collapsed = Set(UserDefaults.standard.stringArray(forKey: SidebarViewController.collapsedKey) ?? [])
 
-    init(store: MailStore) {
-        self.store = store
+    init(manager: AccountManager) {
+        self.manager = manager
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -38,10 +40,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         outlineView.delegate = self
         outlineView.target = self
         outlineView.doubleAction = #selector(toggleClickedRow)
+        outlineView.registerForDraggedTypes([Self.messageDragType])
+        outlineView.setAccessibilityLabel("사서함")
         let menu = NSMenu()
         menu.delegate = self
         outlineView.menu = menu
-        outlineView.setAccessibilityLabel("사서함")
 
         let scroll = NSScrollView()
         scroll.documentView = outlineView
@@ -72,133 +75,25 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     override func viewDidLoad() {
         super.viewDidLoad()
         let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(reload), name: MailStore.mailboxesDidChange, object: store)
-        center.addObserver(self, selector: #selector(syncSelection), name: MailStore.selectionDidChange, object: store)
-        center.addObserver(self, selector: #selector(unreadChanged), name: MailStore.unreadDidChange, object: store)
+        center.addObserver(self, selector: #selector(reload), name: AccountManager.accountsDidChange, object: manager)
+        center.addObserver(self, selector: #selector(reload), name: MailStore.mailboxesDidChange, object: nil)
+        center.addObserver(self, selector: #selector(syncSelection), name: AccountManager.currentDidChange, object: manager)
+        center.addObserver(self, selector: #selector(syncSelection), name: MailStore.selectionDidChange, object: nil)
+        center.addObserver(self, selector: #selector(unreadChanged), name: MailStore.unreadDidChange, object: nil)
         reload()
-    }
-
-    /// 더블클릭: 하위 항목이 있는 줄(계정·폴더)을 접거나 펼친다.
-    @objc private func toggleClickedRow() {
-        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? SidebarNode,
-              !node.children.isEmpty else { return }
-        toggle(node)
-    }
-
-    private func toggle(_ node: SidebarNode) {
-        if outlineView.isItemExpanded(node) {
-            outlineView.animator().collapseItem(node)
-        } else {
-            outlineView.animator().expandItem(node)
-        }
-    }
-
-    // MARK: - 우클릭 메뉴
-
-    /// 우클릭한 줄의 종류에 맞춰 메뉴를 채운다.
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? SidebarNode else { return }
-
-        func add(_ title: String, _ action: Selector, target: AnyObject? = nil) {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = target
-            item.representedObject = node
-            menu.addItem(item)
-        }
-
-        if node.mailbox != nil || node.isAccount {
-            add("새로운 메일 가져오기", #selector(menuRefresh(_:)), target: self)
-        }
-        if let mailbox = node.mailbox {
-            add("모두 읽음으로 표시", #selector(menuMarkAllRead(_:)), target: self)
-            if mailbox.role == .trash || mailbox.role == .junk {
-                menu.addItem(.separator())
-                add("\(mailbox.displayName) 비우기…", #selector(menuEmpty(_:)), target: self)
-            }
-        }
-        if node.isAccount {
-            menu.addItem(.separator())
-            add("계정 설정…", #selector(AppDelegate.showAccountSettings(_:)))
-            add("로그아웃", #selector(AppDelegate.signOut(_:)))
-        }
-        if !node.children.isEmpty {
-            if !menu.items.isEmpty { menu.addItem(.separator()) }
-            add(outlineView.isItemExpanded(node) ? "접기" : "펼치기", #selector(menuToggle(_:)), target: self)
-        }
-    }
-
-    private func mailbox(for sender: NSMenuItem) -> Mailbox? {
-        guard let node = sender.representedObject as? SidebarNode else { return nil }
-        return node.isAccount ? store.mailboxes.first { $0.role == .inbox } : node.mailbox
-    }
-
-    @objc private func menuRefresh(_ sender: NSMenuItem) {
-        guard let mailbox = mailbox(for: sender) else { return }
-        store.loadMailboxes()
-        store.open(mailbox)
-    }
-
-    @objc private func menuMarkAllRead(_ sender: NSMenuItem) {
-        guard let mailbox = mailbox(for: sender) else { return }
-        store.markAllRead(in: mailbox) { [weak self] error in
-            self?.presentFailure("읽음으로 표시하지 못했습니다", error)
-        }
-    }
-
-    @objc private func menuEmpty(_ sender: NSMenuItem) {
-        guard let mailbox = mailbox(for: sender), let window = view.window else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "\(mailbox.displayName)을(를) 비울까요?"
-        alert.informativeText = "이 사서함의 모든 메일이 서버에서 완전히 삭제되며 되돌릴 수 없습니다."
-        alert.addButton(withTitle: "비우기")
-        alert.addButton(withTitle: "취소")
-        alert.buttons.first?.hasDestructiveAction = true
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            self?.store.empty(mailbox) { error in
-                self?.presentFailure("사서함을 비우지 못했습니다", error)
-            }
-        }
-    }
-
-    @objc private func menuToggle(_ sender: NSMenuItem) {
-        guard let node = sender.representedObject as? SidebarNode else { return }
-        toggle(node)
-    }
-
-    private func presentFailure(_ title: String, _ error: Error) {
-        guard let window = view.window else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = error.localizedDescription
-        alert.beginSheetModal(for: window)
     }
 
     // MARK: - 갱신
 
     @objc private func reload() {
         isReloading = true
-        if let account = store.account, !store.mailboxes.isEmpty {
-            root = SidebarTree.build(account: account, mailboxes: store.mailboxes)
-        } else {
-            root = nil
-        }
+        roots = manager.stores.map(SidebarTree.build)
         outlineView.reloadData()
-        if let root { expand(root) }
+        roots.forEach(expand)
         isReloading = false
         syncSelection()
-
-        if store.account == nil {
-            statusLabel.stringValue = "계정이 없습니다"
-        } else if store.mailboxes.isEmpty {
-            statusLabel.stringValue = store.mailboxError ?? "사서함을 불러오는 중…"
-        } else {
-            statusLabel.stringValue = ""
-        }
-        statusLabel.isHidden = statusLabel.stringValue.isEmpty
+        statusLabel.stringValue = roots.isEmpty ? "계정이 없습니다" : ""
+        statusLabel.isHidden = !roots.isEmpty
     }
 
     /// 사용자가 접어 둔 줄만 빼고 펼친다.
@@ -211,13 +106,14 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     @objc private func syncSelection() {
         isReloading = true
         defer { isReloading = false }
-        guard let root, let selected = store.selectedMailbox, let found = find(selected.path, in: root) else {
+        guard let store = manager.current, let root = roots.first(where: { $0.store === store }) else {
             outlineView.deselectAll(nil)
             return
         }
-        if selected.role != .inbox { accountRowSelected = false }
-        let node = accountRowSelected ? root : found
-        let row = outlineView.row(forItem: node)   // 접힌 부모 안에 있으면 -1
+        if store.selectedMailbox?.role != .inbox || accountRowStore !== store { accountRowStore = nil }
+        let found = store.selectedMailbox.flatMap { find($0.path, in: root) }
+        let node = accountRowStore === store ? root : found
+        let row = node.map { outlineView.row(forItem: $0) } ?? -1   // 접힌 부모 안에 있으면 -1
         if row >= 0 {
             outlineView.selectRowIndexes([row], byExtendingSelection: false)
         } else {
@@ -225,8 +121,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
     }
 
-    @objc private func unreadChanged() {
-        guard let root, let inbox = root.children.first(where: { $0.mailbox?.role == .inbox }) else { return }
+    @objc private func unreadChanged(_ note: Notification) {
+        guard let store = note.object as? MailStore, let root = roots.first(where: { $0.store === store }),
+              let inbox = root.children.first(where: { $0.mailbox?.role == .inbox }) else { return }
         let row = outlineView.row(forItem: inbox)
         if row >= 0 { outlineView.reloadData(forRowIndexes: [row], columnIndexes: [0]) }
     }
@@ -239,20 +136,62 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         return nil
     }
 
+    /// 더블클릭: 하위 항목이 있는 줄(계정·폴더)을 접거나 펼친다.
+    @objc private func toggleClickedRow() {
+        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? SidebarNode else { return }
+        toggle(node)
+    }
+
+    func toggle(_ node: SidebarNode) {
+        guard !node.children.isEmpty else { return }
+        if outlineView.isItemExpanded(node) {
+            outlineView.animator().collapseItem(node)
+        } else {
+            outlineView.animator().expandItem(node)
+        }
+    }
+
+    func presentFailure(_ title: String, _ error: Error) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        alert.beginSheetModal(for: window)
+    }
+
     // MARK: - NSOutlineViewDataSource
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        guard let node = item as? SidebarNode else { return root == nil ? 0 : 1 }
-        return node.children.count
+        (item as? SidebarNode)?.children.count ?? roots.count
     }
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        guard let node = item as? SidebarNode else { return root as Any }
-        return node.children[index]
+        (item as? SidebarNode)?.children[index] ?? roots[index]
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         !((item as? SidebarNode)?.children.isEmpty ?? true)
+    }
+
+    /// 끌어 온 메일은 같은 계정의 다른 사서함 위에만 놓을 수 있다.
+    func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?,
+                     proposedChildIndex index: Int) -> NSDragOperation {
+        guard let node = item as? SidebarNode, let mailbox = node.mailbox, index == NSOutlineViewDropOnItemIndex,
+              node.store === manager.current, mailbox != node.store.selectedMailbox else { return [] }
+        return .move
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
+        guard let node = item as? SidebarNode, let destination = node.mailbox,
+              let source = node.store.selectedMailbox else { return false }
+        let uids = (info.draggingPasteboard.pasteboardItems ?? [])
+            .compactMap { $0.string(forType: Self.messageDragType) }.compactMap { UInt32($0) }
+        guard !uids.isEmpty else { return false }
+        node.store.move(uids: uids, from: source, to: destination) { [weak self] error in
+            self?.presentFailure("메일을 옮기지 못했습니다", error)
+        }
+        return true
     }
 
     // MARK: - NSOutlineViewDelegate
@@ -261,8 +200,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         guard let node = item as? SidebarNode else { return nil }
         let cell = outlineView.makeView(withIdentifier: Self.cellID, owner: nil) as? MailboxCellView ?? MailboxCellView()
         cell.identifier = Self.cellID
-        let badge = node.mailbox?.role == .inbox && store.inboxUnread > 0 ? "\(store.inboxUnread)" : ""
-        cell.configure(node, badge: badge)
+        let unread = node.store.inboxUnread
+        cell.configure(node, badge: node.mailbox?.role == .inbox && unread > 0 ? "\(unread)" : "")
         return cell
     }
 
@@ -273,10 +212,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard !isReloading, let node = outlineView.item(atRow: outlineView.selectedRow) as? SidebarNode else { return }
-        accountRowSelected = node.isAccount
+        accountRowStore = node.isAccount ? node.store : nil
         // 계정 줄은 그 계정의 받은편지함을 연다.
-        let target = node.isAccount ? store.mailboxes.first { $0.role == .inbox } : node.mailbox
-        if let target { store.select(target) }
+        if let target = node.isAccount ? node.store.inboxMailbox : node.mailbox {
+            manager.select(target, in: node.store)
+        }
     }
 
     func outlineViewItemDidCollapse(_ notification: Notification) {

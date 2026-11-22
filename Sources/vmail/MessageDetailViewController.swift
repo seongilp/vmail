@@ -9,7 +9,6 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
         [{"trigger": {"url-filter": "^https?://"}, "action": {"type": "block"}}]
         """
 
-    private let store: MailStore
     private let subjectLabel = NSTextField(wrappingLabelWithString: "")
     private let fromLabel = NSTextField(labelWithString: "")
     private let toLabel = NSTextField(labelWithString: "")
@@ -27,11 +26,12 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
     private var pendingRender: (() -> Void)?
 
     /// 지금 화면에 떠 있는 메시지 (답장에 사용)
-    private(set) var current: (envelope: Envelope, mailbox: Mailbox, message: ParsedMessage)?
+    private(set) var current: (envelope: Envelope, mailbox: Mailbox, message: ParsedMessage, store: MailStore)?
+    private static let zoomStep: CGFloat = 1.1
+    private static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
     private var requestedKey: String?
 
-    init(store: MailStore) {
-        self.store = store
+    init() {
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -133,14 +133,14 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
     // MARK: - 표시
 
     /// 선택이 바뀔 때 호출된다. 한 통일 때만 본문을 보여준다.
-    func show(_ envelopes: [Envelope], in mailbox: Mailbox?) {
-        guard let mailbox, envelopes.count == 1, let envelope = envelopes.first else {
+    func show(_ envelopes: [Envelope], in mailbox: Mailbox?, store: MailStore?) {
+        guard let store, let mailbox, envelopes.count == 1, let envelope = envelopes.first else {
             requestedKey = nil
             current = nil
             showPlaceholder(envelopes.count > 1 ? "\(envelopes.count)개의 메일을 선택했습니다" : "메일을 선택하세요")
             return
         }
-        let key = "\(mailbox.path)#\(envelope.uid)"
+        let key = "\(store.account.email)|\(mailbox.path)#\(envelope.uid)"
         guard key != requestedKey else { return }
         requestedKey = key
         current = nil
@@ -151,15 +151,16 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
         statusLabel.isHidden = false
         spinner.startAnimation(nil)
 
-        store.loadBody(envelope, in: mailbox) { [weak self] result in
+        store.loadBody(envelope, in: mailbox) { [weak self, weak store] result in
             guard let self, self.requestedKey == key else { return }   // 그사이 다른 메일을 골랐으면 버린다
             self.spinner.stopAnimation(nil)
             switch result {
             case .success(let message):
-                self.current = (envelope, mailbox, message)
-                self.render(message, allowRemote: false)
+                guard let store else { return }
+                self.current = (envelope, mailbox, message, store)
+                self.render(message, allowRemote: Preferences.alwaysLoadRemoteContent)
                 if !envelope.isSeen {
-                    self.store.setFlag("\\Seen", on: true, envelopes: [envelope], in: mailbox) { _ in }
+                    store.setFlag("\\Seen", on: true, envelopes: [envelope], in: mailbox) { _ in }
                 }
             case .failure(let error):
                 self.statusLabel.stringValue = error.localizedDescription
@@ -193,6 +194,21 @@ final class MessageDetailViewController: NSViewController, WKNavigationDelegate 
     private func setBodyVisible(_ visible: Bool) {
         webView.isHidden = !visible
         if !visible { webView.loadHTMLString("", baseURL: nil) }
+    }
+
+    // MARK: - 프린트 / 확대
+
+    func printMessage() {
+        guard current != nil, let window = view.window else { return }
+        let operation = webView.printOperation(with: NSPrintInfo.shared)
+        operation.view?.frame = webView.bounds
+        operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+    }
+
+    /// factor: 1보다 크면 확대, 작으면 축소, nil이면 실제 크기
+    func zoom(_ factor: CGFloat?) {
+        let next = factor.map { webView.pageZoom * ($0 > 1 ? Self.zoomStep : 1 / Self.zoomStep) } ?? 1
+        webView.pageZoom = min(max(next, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
     }
 
     private func render(_ message: ParsedMessage, allowRemote: Bool) {

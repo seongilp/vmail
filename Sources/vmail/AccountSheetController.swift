@@ -3,7 +3,27 @@ import MailCore
 
 /// 계정 추가/수정 시트. 이메일을 입력하면 서버 설정을 자동으로 채운다.
 final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
-    private let store: MailStore
+    private let manager: AccountManager
+    /// 수정 중인 기존 계정 (nil이면 새 계정 추가)
+    private let editing: MailStore?
+    private let providerControl = NSSegmentedControl(labels: AccountSheetController.providers.map(\.title),
+                                                     trackingMode: .selectOne, target: nil, action: nil)
+    /// 시트가 떠 있는 동안 컨트롤러를 붙잡아 둔다.
+    private static var active: AccountSheetController?
+
+    /// 빠른 선택: 아이디만 입력해도 도메인을 붙여 준다.
+    private static let providers: [(title: String, domain: String?)] = [
+        ("Gmail", "gmail.com"), ("iCloud", "icloud.com"), ("네이버", "naver.com"), ("기타", nil),
+    ]
+
+    /// 창 위에 계정 시트를 띄운다. editing을 주면 그 계정을 수정한다.
+    static func present(on window: NSWindow, manager: AccountManager, editing: MailStore? = nil) {
+        guard active == nil else { return }
+        let controller = AccountSheetController(manager: manager, editing: editing)
+        guard let sheet = controller.window else { return }
+        active = controller
+        window.beginSheet(sheet) { _ in active = nil }
+    }
     private let nameField = NSTextField()
     private let emailField = NSTextField()
     private let passwordField = NSSecureTextField()
@@ -34,20 +54,27 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
 
     private static let hint = "Gmail · iCloud는 주소를 입력하고 ‘앱 비밀번호 만들기’를 누르면 복사만으로 로그인됩니다. 다른 메일 앱에서 쓰던 계정은 ‘키체인에서 가져오기’로 불러올 수 있습니다. 비밀번호는 이 Mac의 키체인에만 저장됩니다."
 
-    init(store: MailStore) {
-        self.store = store
+    private init(manager: AccountManager, editing: MailStore?) {
+        self.manager = manager
+        self.editing = editing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
                               styleMask: [.titled], backing: .buffered, defer: false)
         super.init(window: window)
         buildContent(in: window)
-        if let account = store.account {
-            fill(account)
+        if let account = editing?.account {
             nameField.stringValue = account.displayName
             emailField.stringValue = account.email
+            passwordField.stringValue = Keychain.password(account: account.email) ?? ""
+            fill(account)
             serverEdited = true
+            let domain = account.email.components(separatedBy: "@").last?.lowercased()
+            providerControl.selectedSegment = Self.providers.firstIndex { $0.domain == domain } ?? Self.providers.count - 1
         } else {
             nameField.stringValue = NSFullUserName()
+            providerControl.selectedSegment = Self.providers.count - 1
         }
+        providerControl.target = self
+        providerControl.action = #selector(providerChanged)
         window.initialFirstResponder = emailField
         connectKeyViewLoop()
         loadImportableAccounts()
@@ -57,7 +84,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) 미지원") }
 
     private func buildContent(in window: NSWindow) {
-        let title = NSTextField(labelWithString: "메일 계정")
+        let title = NSTextField(labelWithString: editing == nil ? "계정 추가" : "계정 수정")
         title.font = .systemFont(ofSize: 15, weight: .semibold)
 
         func label(_ text: String) -> NSTextField {
@@ -120,7 +147,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
         importButton.addItem(withTitle: "키체인에서 가져오기")
         let header = NSStackView(views: [title, NSView(), importButton])
 
-        let stack = NSStackView(views: [header, grid, messageLabel, buttons])
+        let stack = NSStackView(views: [header, providerControl, grid, messageLabel, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -155,6 +182,22 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
         }
     }
 
+    /// 입력한 주소. ‘@’ 없이 아이디만 넣었으면 고른 서비스의 도메인을 붙인다.
+    private var effectiveEmail: String {
+        let typed = emailField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty, !typed.contains("@"), providerControl.selectedSegment >= 0,
+              let domain = Self.providers[providerControl.selectedSegment].domain else { return typed }
+        return "\(typed)@\(domain)"
+    }
+
+    @objc private func providerChanged() {
+        let domain = Self.providers[providerControl.selectedSegment].domain
+        emailField.placeholderString = domain.map { "아이디 또는 name@\($0)" } ?? "name@example.com"
+        serverEdited = false
+        fill(Account.preset(email: effectiveEmail))
+        window?.makeFirstResponder(emailField)
+    }
+
     private func fill(_ account: Account) {
         usernameField.stringValue = account.username
         imapHostField.stringValue = account.imapHost
@@ -165,12 +208,11 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     }
 
     private var appPasswordPage: URL? {
-        let domain = emailField.stringValue.components(separatedBy: "@").last?
-            .trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        let domain = effectiveEmail.components(separatedBy: "@").last?.lowercased() ?? ""
         guard let page = Self.appPasswordPages[domain], var components = URLComponents(string: page) else { return nil }
         if page.contains("google.com") {
             // 여러 Google 계정에 로그인돼 있어도 입력한 계정의 페이지가 열리게 한다.
-            components.queryItems = [URLQueryItem(name: "authuser", value: emailField.stringValue.trimmingCharacters(in: .whitespaces))]
+            components.queryItems = [URLQueryItem(name: "authuser", value: effectiveEmail)]
         }
         return components.url
     }
@@ -196,7 +238,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
     func controlTextDidChange(_ note: Notification) {
         guard let field = note.object as? NSTextField else { return }
         if field === emailField {
-            if !serverEdited { fill(Account.preset(email: emailField.stringValue)) }
+            if !serverEdited { fill(Account.preset(email: effectiveEmail)) }
             updateAppPasswordButton()
         } else {
             serverEdited = true
@@ -271,7 +313,7 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
         clipboardWatcher.stop()
         setBusy(true)
         showMessage("서버에 연결하는 중…", isError: false)
-        store.signIn(account: account, password: password) { [weak self] error in
+        manager.add(account, password: password, replacing: editing) { [weak self] error in
             guard let self else { return }
             self.setBusy(false)
             if let error {
@@ -284,7 +326,8 @@ final class AccountSheetController: NSWindowController, NSTextFieldDelegate {
 
     /// 입력을 검증해 Account를 만든다. 문제가 있으면 안내하고 nil.
     private func validatedAccount() -> Account? {
-        let email = emailField.stringValue.trimmingCharacters(in: .whitespaces)
+        let email = effectiveEmail
+        emailField.stringValue = email
         guard MessageBuilder.isValidEmail(email) else { return fail("이메일 주소를 확인하세요.", emailField) }
         guard !passwordField.stringValue.isEmpty else {
             // 비밀번호 없이 로그인을 누르면, 발급 페이지가 있는 서비스는 바로 그 페이지를 띄운다.

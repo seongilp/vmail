@@ -45,9 +45,12 @@ final class SidebarNode {
     let title: String
     let symbolName: String
     let kind: Kind
+    /// 이 줄이 속한 계정의 스토어
+    let store: MailStore
     private(set) var children: [SidebarNode]
 
-    init(key: String, title: String, symbolName: String, kind: Kind, children: [SidebarNode] = []) {
+    init(store: MailStore, key: String, title: String, symbolName: String, kind: Kind, children: [SidebarNode] = []) {
+        self.store = store
         self.key = key
         self.title = title
         self.symbolName = symbolName
@@ -81,20 +84,22 @@ final class SidebarNode {
 
 /// 계정 → 기본 사서함 → 사용자 폴더 계층으로 트리를 만든다.
 enum SidebarTree {
-    static func build(account: Account, mailboxes: [Mailbox]) -> SidebarNode {
-        let root = SidebarNode(key: "account", title: account.email, symbolName: "person.crop.circle", kind: .account)
+    static func build(store: MailStore) -> SidebarNode {
+        let email = store.account.email
+        let root = SidebarNode(store: store, key: "\(email)|account", title: email,
+                               symbolName: "person.crop.circle", kind: .account)
 
         // 기본 사서함은 서버 경로와 상관없이 계정 바로 아래에, 정해진 순서로 둔다.
         let order = MailboxRole.allCases
-        let specials = mailboxes.filter { $0.role != .other }
+        let specials = store.mailboxes.filter { $0.role != .other }
             .sorted { (order.firstIndex(of: $0.role) ?? 0) < (order.firstIndex(of: $1.role) ?? 0) }
         for mailbox in specials {
-            root.adding(SidebarNode(key: "role:\(mailbox.role.rawValue)", title: mailbox.displayName,
+            root.adding(SidebarNode(store: store, key: "\(email)|role:\(mailbox.role.rawValue)", title: mailbox.displayName,
                                     symbolName: mailbox.symbolName, kind: .mailbox(mailbox)))
         }
 
         // 사용자 폴더는 경로 구성 요소를 따라 계층으로 넣는다. 부모가 먼저 오도록 이름순 정렬.
-        let folders = mailboxes.filter { $0.role == .other }
+        let folders = store.mailboxes.filter { $0.role == .other }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         for mailbox in folders {
             insert(mailbox, into: root)
@@ -105,6 +110,7 @@ enum SidebarTree {
     private static func insert(_ mailbox: Mailbox, into root: SidebarNode) {
         let parts = mailbox.components.filter { !$0.isEmpty }
         guard !parts.isEmpty else { return }
+        let prefixKey = "\(root.store.account.email)|folder:"
         var parent = root
         var prefix: [String] = []
         for part in parts.dropLast() {
@@ -112,13 +118,13 @@ enum SidebarTree {
             if let existing = parent.child(titled: part) {
                 parent = existing
             } else {
-                let container = SidebarNode(key: "folder:" + prefix.joined(separator: "\u{1F}"), title: part,
-                                            symbolName: "folder", kind: .container)
+                let container = SidebarNode(store: root.store, key: prefixKey + prefix.joined(separator: "\u{1F}"),
+                                            title: part, symbolName: "folder", kind: .container)
                 parent.adding(container)
                 parent = container
             }
         }
-        parent.adding(SidebarNode(key: "folder:" + parts.joined(separator: "\u{1F}"), title: parts[parts.count - 1],
-                                  symbolName: "folder", kind: .mailbox(mailbox)))
+        parent.adding(SidebarNode(store: root.store, key: prefixKey + parts.joined(separator: "\u{1F}"),
+                                  title: parts[parts.count - 1], symbolName: "folder", kind: .mailbox(mailbox)))
     }
 }

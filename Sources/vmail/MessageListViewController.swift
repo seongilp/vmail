@@ -3,9 +3,9 @@ import MailCore
 
 protocol MessageListDelegate: AnyObject {
     func messageList(_ list: MessageListViewController, didSelect envelopes: [Envelope])
+    func messageList(_ list: MessageListViewController, didDoubleClick envelope: Envelope)
 }
 
-/// Delete 키를 삭제 액션으로 바꿔 응답자 체인에 올린다.
 private final class MessageTableView: NSTableView {
     /// 우클릭한 줄이 선택에 없으면 그 줄만 선택한 뒤 메뉴를 띄운다.
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -17,6 +17,7 @@ private final class MessageTableView: NSTableView {
         return super.menu(for: event)
     }
 
+    /// Delete 키를 삭제 액션으로 바꿔 응답자 체인에 올린다.
     override func keyDown(with event: NSEvent) {
         let deleteKeys: Set<UInt16> = [51, 117]   // delete, forward delete
         if deleteKeys.contains(event.keyCode) {
@@ -27,13 +28,13 @@ private final class MessageTableView: NSTableView {
     }
 }
 
-/// 선택된 사서함의 메시지 목록
+/// 선택된 사서함의 메시지 목록. 입력 중에는 불러온 목록을 걸러 보여주고, Enter를 누르면 서버 전체를 검색한다.
 final class MessageListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private static let cellID = NSUserInterfaceItemIdentifier("message")
     private static let loadMoreThreshold: CGFloat = 300
 
     weak var delegate: MessageListDelegate?
-    private let store: MailStore
+    private let manager: AccountManager
     private let tableView = MessageTableView()
     private let scrollView = NSScrollView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -41,10 +42,19 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     private var rows: [Envelope] = []
     private var filter = ""
     private var isReloading = false
+    /// 서버 검색 결과 (nil이면 일반 목록)
+    private var searchResults: [Envelope]?
+    private var searchQuery = ""
+    private var isSearching = false
+    private var searchError: String?
+    private(set) var unreadOnly = false
 
-    init(store: MailStore) {
-        self.store = store
+    private var store: MailStore? { manager.current }
+
+    init(manager: AccountManager, contextMenu: NSMenu) {
+        self.manager = manager
         super.init(nibName: nil, bundle: nil)
+        tableView.menu = contextMenu
     }
 
     @available(*, unavailable)
@@ -64,8 +74,10 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
         tableView.allowsMultipleSelection = true
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.target = self
+        tableView.doubleAction = #selector(doubleClicked)
+        tableView.setDraggingSourceOperationMask(.move, forLocal: true)
         tableView.setAccessibilityLabel("메시지")
-        tableView.menu = Self.contextMenu()
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -102,52 +114,94 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     override func viewDidLoad() {
         super.viewDidLoad()
         let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(selectionChanged), name: MailStore.selectionDidChange, object: store)
-        center.addObserver(self, selector: #selector(messagesChanged(_:)), name: MailStore.messagesDidChange, object: store)
+        center.addObserver(self, selector: #selector(mailboxChanged), name: AccountManager.currentDidChange, object: manager)
+        center.addObserver(self, selector: #selector(storeSelectionChanged(_:)), name: MailStore.selectionDidChange, object: nil)
+        center.addObserver(self, selector: #selector(messagesChanged(_:)), name: MailStore.messagesDidChange, object: nil)
         center.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
                            object: scrollView.contentView)
         reload(keepSelection: false)
-    }
-
-    /// 액션은 nil 타깃으로 보내 창 컨트롤러가 처리하고, 제목·활성 여부도 거기서 정한다.
-    private static func contextMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(withTitle: "답장", action: #selector(MainWindowController.replyMessage(_:)), keyEquivalent: "")
-        menu.addItem(withTitle: "모두에게 답장", action: #selector(MainWindowController.replyAllMessage(_:)), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "읽지 않음으로 표시", action: #selector(MainWindowController.toggleRead(_:)), keyEquivalent: "")
-        menu.addItem(withTitle: "깃발 표시", action: #selector(MainWindowController.toggleFlag(_:)), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "삭제", action: #selector(MainWindowController.deleteMessage(_:)), keyEquivalent: "")
-        return menu
-    }
-
-    func setFilter(_ text: String) {
-        filter = text.trimmingCharacters(in: .whitespaces)
-        reload(keepSelection: true)
     }
 
     func focus() {
         view.window?.makeFirstResponder(tableView)
     }
 
+    // MARK: - 검색 / 필터
+
+    /// 입력 중: 불러온 목록만 즉시 거른다.
+    func setFilter(_ text: String) {
+        filter = text.trimmingCharacters(in: .whitespaces)
+        if filter != searchQuery { clearSearch() }
+        reload(keepSelection: true)
+    }
+
+    /// Enter: 서버에서 사서함 전체를 검색한다.
+    func submitSearch(_ text: String) {
+        let query = text.trimmingCharacters(in: .whitespaces)
+        guard let store, let mailbox = store.selectedMailbox, !query.isEmpty else {
+            clearSearch()
+            reload(keepSelection: true)
+            return
+        }
+        filter = query
+        searchQuery = query
+        searchResults = []
+        searchError = nil
+        isSearching = true
+        reload(keepSelection: false)
+        store.search(query, in: mailbox) { [weak self] result in
+            guard let self, self.searchQuery == query, self.store === store, store.selectedMailbox == mailbox else { return }
+            self.isSearching = false
+            switch result {
+            case .success(let envelopes): self.searchResults = envelopes
+            case .failure(let error): self.searchError = error.localizedDescription
+            }
+            self.reload(keepSelection: false)
+        }
+    }
+
+    func toggleUnreadOnly() {
+        unreadOnly.toggle()
+        reload(keepSelection: true)
+    }
+
+    private func clearSearch() {
+        searchResults = nil
+        searchQuery = ""
+        searchError = nil
+        isSearching = false
+    }
+
     // MARK: - 갱신
 
-    @objc private func selectionChanged() {
+    @objc private func mailboxChanged() {
+        clearSearch()
         reload(keepSelection: false)
         tableView.scrollRowToVisible(0)
     }
 
+    @objc private func storeSelectionChanged(_ note: Notification) {
+        guard note.object as? MailStore === store else { return }
+        mailboxChanged()
+    }
+
     @objc private func messagesChanged(_ note: Notification) {
-        guard note.userInfo?["path"] as? String == store.selectedMailbox?.path else { return }
+        guard note.object as? MailStore === store,
+              note.userInfo?["path"] as? String == store?.selectedMailbox?.path else { return }
+        // 검색 결과에도 같은 변경(읽음·삭제 등)을 반영한다.
+        if let results = searchResults, let mutation = note.userInfo?["mutation"] as? MessageMutation {
+            searchResults = mutation.apply(to: results)
+        }
         reload(keepSelection: true)
     }
 
     private func reload(keepSelection: Bool) {
         let previous = Set(keepSelection ? selectedEnvelopes.map(\.uid) : [])
         let previousFirstRow = tableView.selectedRowIndexes.first
-        let state = store.selectedMailbox.map(store.state(for:)) ?? MailboxListState()
-        rows = filter.isEmpty ? state.envelopes : state.envelopes.filter(matchesFilter)
+        let state = store.flatMap { s in s.selectedMailbox.map(s.state(for:)) } ?? MailboxListState()
+        var base = searchResults ?? (filter.isEmpty ? state.envelopes : state.envelopes.filter(matchesFilter))
+        if unreadOnly { base = base.filter { !$0.isSeen || previous.contains($0.uid) } }
+        rows = base
 
         isReloading = true
         tableView.reloadData()
@@ -157,11 +211,10 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
             restored = [min(row, rows.count - 1)]
         }
         tableView.selectRowIndexes(restored, byExtendingSelection: false)
-        if let first = restored.first { tableView.scrollRowToVisible(first) }
+        if keepSelection, let first = restored.first { tableView.scrollRowToVisible(first) }
         isReloading = false
 
         updateStatus(state)
-        // 선택이 사라졌거나(삭제) 플래그가 바뀐 경우를 상세 화면에 반영한다.
         if Set(selectedEnvelopes.map(\.uid)) != previous || !keepSelection {
             delegate?.messageList(self, didSelect: selectedEnvelopes)
         }
@@ -175,20 +228,25 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     private func updateStatus(_ state: MailboxListState) {
         var message = ""
         var busy = false
-        if store.account == nil {
+        if store == nil {
             message = "계정을 추가하면 메일이 여기에 표시됩니다"
-        } else if store.selectedMailbox == nil {
-            message = store.mailboxError ?? "사서함을 선택하세요"
+        } else if store?.selectedMailbox == nil {
+            message = store?.mailboxError ?? "사서함을 불러오는 중…"
+        } else if isSearching {
+            message = "서버에서 검색하는 중…"
+            busy = true
         } else if rows.isEmpty {
-            if let error = state.error {
+            if let error = searchError ?? state.error {
                 message = error
-            } else if !state.hasLoaded {
+            } else if searchResults == nil, !state.hasLoaded {
                 message = "메일을 불러오는 중…"
                 busy = true
             } else if !filter.isEmpty {
-                message = "‘\(filter)’ 검색 결과가 없습니다"
+                message = searchResults == nil
+                    ? "불러온 메일 중에는 ‘\(filter)’ 결과가 없습니다.\nEnter를 누르면 서버 전체를 검색합니다."
+                    : "‘\(filter)’ 검색 결과가 없습니다"
             } else {
-                message = "메일이 없습니다"
+                message = unreadOnly ? "읽지 않은 메일이 없습니다" : "메일이 없습니다"
             }
         }
         statusLabel.stringValue = message
@@ -197,9 +255,15 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     }
 
     @objc private func scrolled() {
-        guard filter.isEmpty, let document = scrollView.documentView else { return }
+        guard filter.isEmpty, searchResults == nil, let document = scrollView.documentView else { return }
         let visible = scrollView.contentView.bounds
-        if document.bounds.height - visible.maxY < Self.loadMoreThreshold { store.loadMore() }
+        if document.bounds.height - visible.maxY < Self.loadMoreThreshold { store?.loadMore() }
+    }
+
+    @objc private func doubleClicked() {
+        let row = tableView.clickedRow
+        guard row >= 0, row < rows.count else { return }
+        delegate?.messageList(self, didDoubleClick: rows[row])
     }
 
     // MARK: - NSTableView
@@ -211,7 +275,7 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: Self.cellID, owner: nil) as? MessageCellView ?? MessageCellView()
         cell.identifier = Self.cellID
-        let role = store.selectedMailbox?.role
+        let role = store?.selectedMailbox?.role
         cell.configure(rows[row], showRecipient: role == .sent || role == .drafts)
         return cell
     }
@@ -219,5 +283,13 @@ final class MessageListViewController: NSViewController, NSTableViewDataSource, 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isReloading else { return }
         delegate?.messageList(self, didSelect: selectedEnvelopes)
+    }
+
+    /// 사이드바의 사서함으로 끌어 옮길 수 있게 UID를 싣는다.
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard row < rows.count else { return nil }
+        let item = NSPasteboardItem()
+        item.setString("\(rows[row].uid)", forType: SidebarViewController.messageDragType)
+        return item
     }
 }
